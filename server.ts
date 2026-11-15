@@ -697,7 +697,9 @@ async function startServer() {
         if (result?.code) {
           const safeCode = result.code
             .replace(/await wsTransport\.connect\(handlers\);/g, 'return;')
-            .replace(/transport\.connect\(createHMRHandler\(handleMessage\)\);/g, '/* HMR WebSocket disabled */');
+            .replace(/transport\.connect\(createHMRHandler\(handleMessage\)\);/g, '/* HMR WebSocket disabled */')
+            .replace(/throw new Error\("send was called before connect"\);/g, 'return;')
+            .replace(/throw new Error\("invoke was called before connect"\);/g, 'return;');
           res.setHeader('Content-Type', 'application/javascript');
           return res.send(safeCode);
         }
@@ -705,6 +707,16 @@ async function startServer() {
         // Fall back cleanly if transform fails
       }
       return next();
+    });
+    app.get('/@vite-plugin-pwa/pwa-entry-point-loaded', (_req: Request, res: Response) => {
+      res.setHeader('Content-Type', 'application/javascript');
+      return res.send(`
+export default function registerDevSW() {
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/dev-sw.js?dev-sw', { scope: '/', type: 'module' }).catch(function() {});
+  }
+}
+`);
     });
     app.use(vite.middlewares);
   } else {
