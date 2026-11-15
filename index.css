@@ -28,6 +28,7 @@
   html {
     scroll-behavior: smooth;
     color-scheme: light;
+    overflow-x: clip;
   }
 
   html.dark {
@@ -44,6 +45,7 @@
   body {
     @apply bg-[#FAFBFD] dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased selection:bg-teal-500/15 selection:text-teal-900 dark:selection:text-teal-200 transition-colors duration-300;
     font-family: var(--font-sans);
+    overflow-x: clip;
     -webkit-tap-highlight-color: transparent;
     /* Subtle premium clean paper texture background */
     background-image: 

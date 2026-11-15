@@ -705,7 +705,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
   const isModalPageLocked = !isPurchased && activePreviewIdx > 0;
 
   return (
-    <div className="min-h-screen pb-32">
+    <div className="min-h-screen pb-36 md:pb-20">
       {/* Header / Breadcrumb */}
       <div className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
@@ -1369,12 +1369,12 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
       {/* ===================================================================== */}
       <AnimatePresence>
         {showDemoPaymentModal && (
-          <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.96, y: 12 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 12 }}
-              className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full shadow-2xl border border-slate-100 dark:border-slate-800 relative overflow-hidden"
+              className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full max-h-[92dvh] overflow-y-auto shadow-2xl border border-slate-100 dark:border-slate-800 relative"
             >
               {/* Authentic Blue-Green Header */}
               <div className="bg-gradient-to-r from-blue-800 via-teal-700 to-emerald-700 p-5 text-white flex items-center justify-between">
@@ -1414,7 +1414,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                   <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">
                     Select Payment Method
                   </p>
-                  <div className="grid grid-cols-5 gap-1.5">
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                     {[
                       { id: 'upi' as const, label: 'UPI/QR', icon: Smartphone },
                       { id: 'card' as const, label: 'Card', icon: CreditCard },

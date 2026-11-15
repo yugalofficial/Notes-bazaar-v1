@@ -31,10 +31,10 @@ const About: React.FC = () => {
             <span className="px-4 py-2 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 text-xs font-bold rounded-full uppercase tracking-widest inline-block">
               Our Story · NotesBazaar
             </span>
-            <h1 className="text-4xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight leading-tight">
-              Empowering Aspirants with <br /> <span className="premium-gradient-text">Topper-Verified</span> Knowledge.
+            <h1 className="text-3xl sm:text-4xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight leading-tight">
+              Empowering Aspirants with <br className="hidden sm:block" /> <span className="premium-gradient-text">Topper-Verified</span> Knowledge.
             </h1>
-            <p className="text-lg text-slate-500 dark:text-slate-400 max-w-3xl mx-auto leading-relaxed">
+            <p className="text-base sm:text-lg text-slate-500 dark:text-slate-400 max-w-3xl mx-auto leading-relaxed">
               Your one-stop destination for concise, exam-oriented handwritten notes for SSC, Banking, UPSC, and Government Exams.
             </p>
           </motion.div>
@@ -43,15 +43,15 @@ const About: React.FC = () => {
 
       {/* Stats Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-14">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 min-[360px]:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {stats.map((stat, i) => (
             <motion.div
               key={i}
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.1 }}
-              className="bg-white dark:bg-slate-900 p-8 rounded-[32px] shadow-premium border border-slate-100 dark:border-slate-800 text-center space-y-3"
+              viewport={{ once: true, amount: 0.05 }}
+              transition={{ delay: i * 0.08 }}
+              className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-[28px] sm:rounded-[32px] shadow-premium border border-slate-100 dark:border-slate-800 text-center space-y-3"
             >
               <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto mb-2">
                 <stat.icon size={24} />

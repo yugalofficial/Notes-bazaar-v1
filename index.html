@@ -91,51 +91,16 @@
     <!-- Razorpay SDK: loaded asynchronously so it never blocks page rendering on mobile connections -->
     <script src="https://checkout.razorpay.com/v1/checkout.js" defer async></script>
     
-    <!-- Emergency Blank-Screen Runtime Error Overlay -->
+    <!-- Non-blocking Runtime Safety Guard -->
     <script>
         (function() {
-            function showErrorOverlay(title, error, type) {
-                var message = error && error.message ? error.message : String(error);
-                if (message.indexOf('network') !== -1 || message.indexOf('NetworkError') !== -1 || message.indexOf('Quota') !== -1 || message.indexOf('Firestore') !== -1 || message.indexOf('permission-denied') !== -1) {
-                    console.warn("Benign background warning ignored by overlay:", message);
-                    return;
-                }
-
-                var container = document.getElementById('emergency-error-overlay');
-                if (!container) {
-                    container = document.createElement('div');
-                    container.id = 'emergency-error-overlay';
-                    container.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#1e1e2e;color:#f38ba8;padding:30px;font-family:monospace;z-index:999999;overflow:auto;line-height:1.6;box-sizing:border-box;display:flex;flex-direction:column;';
-                    document.body ? document.body.appendChild(container) : document.documentElement.appendChild(container);
-                }
-                
-                var stack = error && error.stack ? error.stack : '';
-                
-                container.innerHTML = 
-                    '<div style="max-width:800px;margin:20px auto;background:#313244;padding:30px;border-radius:12px;border-left:8px solid #f38ba8;box-shadow:0 10px 30px rgba(0,0,0,0.5);">' +
-                        '<h1 style="margin-top:0;font-size:24px;color:#f2cdcd;display:flex;align-items:center;gap:10px;">⚠️ NotesBazaar Runtime Error (' + type + ')</h1>' +
-                        '<p style="font-size:16px;color:#cdd6f4;background:#181825;padding:15px;border-radius:6px;font-weight:bold;word-break:break-all;">' + message + '</p>' +
-                        (stack ? '<h3 style="color:#a6adc8;margin-bottom:5px;font-size:14px;">Stack Trace:</h3><pre style="background:#11111b;color:#a6e3a1;padding:15px;border-radius:6px;overflow-x:auto;font-size:12px;margin:0;max-height:300px;">' + stack + '</pre>' : '') +
-                        '<div style="margin-top:20px;display:flex;gap:10px;">' +
-                            '<button onclick="window.location.reload(true)" style="background:#89b4fa;color:#11111b;border:none;padding:10px 20px;font-weight:bold;border-radius:6px;cursor:pointer;font-family:monospace;">↩️ Reload Page</button>' +
-                            '<button onclick="navigator.serviceWorker.getRegistrations().then(r => {for(let s of r) s.unregister(); window.location.reload(true);})" style="background:#fab387;color:#11111b;border:none;padding:10px 20px;font-weight:bold;border-radius:6px;cursor:pointer;font-family:monospace;">🧹 Clear Cache & ServiceWorkers</button>' +
-                        '</div>' +
-                    '</div>';
-            }
-
+            window.addEventListener('unhandledrejection', function(event) {
+                console.warn('Non-fatal background promise rejection:', event.reason);
+            });
             window.onerror = function(message, source, lineno, colno, error) {
-                var errObj = error || { message: message, stack: 'at ' + source + ':' + lineno + ':' + colno };
-                console.error("Caught global error:", errObj);
-                showErrorOverlay('Runtime Crash', errObj, 'Unhandled Error');
+                console.error('Captured script error:', message, source, lineno, colno, error);
                 return false;
             };
-
-            window.addEventListener('unhandledrejection', function(event) {
-                console.error("Caught unhandled rejection:", event.reason);
-                var reason = event.reason || 'Unknown unhandled promise rejection';
-                var errObj = reason instanceof Error ? reason : { message: String(reason), stack: '' };
-                showErrorOverlay('Promise Rejection', errObj, 'Unhandled Promise Rejection');
-            });
         })();
     </script>
 </head>

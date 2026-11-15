@@ -147,7 +147,7 @@ const Home: React.FC = () => {
                 </div>
               </div>
 
-              <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold leading-[1.08] tracking-tight text-slate-900 dark:text-white">
+              <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold leading-[1.08] tracking-tight text-slate-900 dark:text-white">
                 {settings?.hero_title || 'Master Your Exams with'}{' '}
                 <span className="premium-gradient-text italic">Topper&apos;s</span>{' '}
                 Handwritten Notes.
@@ -229,19 +229,19 @@ const Home: React.FC = () => {
                 >
                   <img
                     src={sscSampleCover}
-                    className="w-full h-[380px] sm:h-[440px] object-cover object-top group-hover:scale-[1.03] transition-transform duration-700"
+                    className="w-full h-[270px] sm:h-[380px] md:h-[440px] object-cover object-top group-hover:scale-[1.03] transition-transform duration-700"
                     alt="NotesBazaar Handwritten Study Note Sample Page"
                   />
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/85 via-slate-950/40 to-transparent p-5 flex items-end justify-between gap-4">
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/90 via-slate-950/45 to-transparent p-4 sm:p-5 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
                     <div className="text-white">
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">
+                      <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-emerald-300">
                         Live Sample Sheet • Click to Zoom
                       </p>
-                      <p className="font-heading font-bold text-base sm:text-lg">
+                      <p className="font-heading font-bold text-sm sm:text-lg leading-snug">
                         Complete SSC Mathematics Topper Notes
                       </p>
                     </div>
-                    <span className="px-4 py-2 bg-white text-slate-900 rounded-xl font-bold text-xs shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                    <span className="self-start sm:self-auto px-4 py-2 bg-white text-slate-900 rounded-xl font-bold text-xs shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
                       Preview ₹299
                     </span>
                   </div>
@@ -253,7 +253,7 @@ const Home: React.FC = () => {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3, duration: 0.6 }}
-                className="mt-4 grid grid-cols-2 gap-4"
+                className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4"
               >
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex items-center gap-3">
                   <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 rounded-xl shrink-0">
@@ -285,7 +285,7 @@ const Home: React.FC = () => {
           variants={containerVariants}
           initial="hidden"
           whileInView="visible"
-          viewport={{ once: true, margin: '-80px' }}
+          viewport={{ once: true, amount: 0.05 }}
           className="grid md:grid-cols-3 gap-7"
         >
           <motion.div variants={itemVariants} className="white-texture-card p-8 group">
@@ -421,12 +421,12 @@ const Home: React.FC = () => {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 min-[360px]:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {categories.map((cat) => (
             <motion.div key={cat.name} whileHover={{ y: -6 }} className="group">
               <Link
                 to={`/shop?exam=${cat.name}`}
-                className="block p-7 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[28px] text-center shadow-sm hover:shadow-xl hover:border-primary/30 transition-all"
+                className="block p-5 sm:p-7 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[24px] sm:rounded-[28px] text-center shadow-sm hover:shadow-xl hover:border-primary/30 transition-all h-full"
               >
                 <div
                   className={`w-16 h-16 ${cat.color} rounded-2xl flex items-center justify-center text-lg font-heading font-extrabold mx-auto mb-5 group-hover:scale-110 transition-transform duration-300`}

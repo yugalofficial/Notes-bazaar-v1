@@ -115,7 +115,7 @@ const Contact: React.FC = () => {
             <span className="px-4 py-2 bg-primary/10 text-primary text-xs font-bold rounded-full uppercase tracking-widest inline-block">
               Contact Us
             </span>
-            <h1 className="text-4xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight leading-tight">
+            <h1 className="text-3xl sm:text-4xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight leading-tight">
               We&apos;re Here to <span className="premium-gradient-text">Help</span> You Succeed.
             </h1>
             <p className="text-lg text-slate-500 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
@@ -135,8 +135,8 @@ const Contact: React.FC = () => {
                 key={i}
                 initial={{ opacity: 0, x: -20 }}
                 whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
+                viewport={{ once: true, amount: 0.05 }}
+                transition={{ delay: i * 0.08 }}
                 className="bg-white dark:bg-slate-900 p-7 rounded-[28px] shadow-premium border border-slate-100 dark:border-slate-800 flex items-center gap-5"
               >
                 <div className={`w-13 h-13 ${info.color} rounded-2xl flex items-center justify-center flex-shrink-0`}>
@@ -184,9 +184,9 @@ const Contact: React.FC = () => {
           {/* Contact Form */}
           <div className="lg:col-span-2">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.96 }}
               whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
+              viewport={{ once: true, amount: 0.05 }}
               className="bg-white dark:bg-slate-900 p-8 md:p-14 rounded-[40px] shadow-premium border border-slate-100 dark:border-slate-800 h-full transition-colors"
             >
               {sent ? (

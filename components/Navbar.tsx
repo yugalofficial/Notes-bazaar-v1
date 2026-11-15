@@ -215,14 +215,14 @@ const Navbar: React.FC<NavbarProps> = ({ user }) => {
                 animate={{ x: 0 }}
                 exit={{ x: '100%' }}
                 transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                className="fixed right-0 top-0 bottom-0 w-72 bg-white dark:bg-slate-900 z-50 md:hidden shadow-2xl p-6 flex flex-col"
+                className="fixed right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-white dark:bg-slate-900 z-50 md:hidden shadow-2xl p-6 flex flex-col overflow-y-auto"
               >
-                <div className="flex justify-between items-center mb-8">
+                <div className="flex justify-between items-center mb-6">
                   <span className="font-heading font-bold text-xl text-slate-900 dark:text-white">Menu</span>
-                  <button onClick={() => setIsMenuOpen(false)} className="p-2 text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors"><X size={20} strokeWidth={1.5} /></button>
+                  <button onClick={() => setIsMenuOpen(false)} aria-label="Close menu" className="p-2 text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors"><X size={20} strokeWidth={1.5} /></button>
                 </div>
 
-                <div className="space-y-4 flex-grow">
+                <div className="space-y-3 flex-grow">
                   {navLinks.map((link) => (
                     <Link 
                       key={link.path}
@@ -269,7 +269,7 @@ const Navbar: React.FC<NavbarProps> = ({ user }) => {
       </nav>
 
       {/* Mobile Bottom Navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-slate-900/95 backdrop-blur-2xl border-t border-slate-100 dark:border-slate-800 px-6 py-2 flex justify-between items-center pb-safe shadow-[0_-10px_25px_rgba(0,0,0,0.03)]">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border-t border-slate-100 dark:border-slate-800 px-4 sm:px-6 py-2 flex justify-between items-center pb-safe shadow-[0_-10px_25px_rgba(0,0,0,0.03)]">
         <NavLink to="/" className={({isActive}) => `mobile-nav-item dark:text-slate-300 ${isActive ? 'active' : ''}`}>
           {({isActive}) => (
             <>
