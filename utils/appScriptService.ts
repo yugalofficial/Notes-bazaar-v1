@@ -173,11 +173,14 @@ export const fetchNotesFromGoogleSheets = async (): Promise<Note[] | null> => {
           : typeof item.preview_images === 'string' && item.preview_images.startsWith('http') && !item.preview_images.includes('picsum.photos')
             ? [item.preview_images]
             : [],
-        fileUrl: item.file_url || item.fileUrl || '#',
-        rating: Number(item.rating) || 4.9,
-        reviewsCount: Number(item.reviews_count || item.reviewsCount) || 120,
+        fileUrl: item.file_url || item.fileUrl || '',
+        rating: Number(item.rating) || 0,
+        reviewsCount: Number(item.reviews_count || item.reviewsCount) || 0,
         isBestseller: Boolean(item.is_bestseller || item.isBestseller),
-        studentsBought: String(item.students_bought || item.studentsBought || '850')
+        studentsBought: item.students_bought || item.studentsBought ? String(item.students_bought || item.studentsBought) : undefined,
+        pagesCount: item.pages_count || item.pagesCount,
+        updatedLabel: item.updated_label || item.updatedLabel,
+        isEnabled: item.is_enabled !== false
       }));
     }
   } catch (e) {
@@ -186,8 +189,43 @@ export const fetchNotesFromGoogleSheets = async (): Promise<Note[] | null> => {
   return null;
 };
 
-// Curated Offline / Sample Catalog Fallback (guaranteed accessible by ID across Shop, ProductDetail & Dashboard)
+// Built-in Product Catalog (Synchronizes seamlessly with Firestore & Admin Management)
 export const BUILTIN_CATALOG_NOTES: Note[] = [
+  {
+    id: 'prod_static_gk_2026',
+    title: 'NotesBazaar – Static GK 2026',
+    category: 'Static GK & General Awareness',
+    examType: ExamType.SSC,
+    description:
+      'Comprehensive Static GK digital notes for competitive examinations, updated with the information specified in the product description up to December 2025. Structured for rapid revision with high-yield memory tables, factual matrices, and exam-focused coverage.',
+    price: 99,
+    originalPrice: 699,
+    previewImages: [],
+    fileUrl: '', // Admin attaches real downloadable PDF via Admin Panel -> Manage Files / Edit Product
+    fileName: 'NotesBazaar_Static_GK_2026.pdf',
+    rating: 0,
+    reviewsCount: 0,
+    isBestseller: true,
+    pagesCount: '170+ Pages',
+    updatedLabel: 'Updated up to December 2025',
+    examSuitability: ['SSC CGL / CHSL / MTS / CPO', 'Railways RRB NTPC / Group D', 'Banking IBPS / SBI', 'State PSC & Govt Exams'],
+    keyTopics: [
+      '170+ comprehensive exam-ready pages',
+      'Nobel Prizes and major national/international awards',
+      'National parks, tiger reserves & wildlife sanctuaries',
+      'Rivers, dams, multipurpose projects & waterfalls',
+      'Indian classical and folk dances',
+      'Indian art, heritage sites & culture',
+      'India and World superlatives',
+      'Important national/international days and themes',
+      'Sports terminology, cups and trophies',
+      'Major ports, airports and power plants',
+      'Government schemes and key appointments'
+    ],
+    isEnabled: true,
+    downloadLimit: 5,
+    createdAt: '2025-12-20T09:00:00.000Z'
+  },
   {
     id: 'prod_ssc_math_01',
     title: 'Complete SSC Mathematics Topper Notes',
@@ -197,11 +235,23 @@ export const BUILTIN_CATALOG_NOTES: Note[] = [
     price: 299,
     originalPrice: 999,
     previewImages: [],
-    fileUrl: '#',
-    rating: 4.9,
-    reviewsCount: 180,
+    fileUrl: '',
+    rating: 0,
+    reviewsCount: 0,
     isBestseller: true,
-    studentsBought: '1420'
+    pagesCount: '210+ Pages',
+    updatedLabel: 'Updated 2025 Edition',
+    examSuitability: ['SSC CGL Tier 1 & 2', 'SSC CHSL', 'SSC CPO', 'CDS'],
+    keyTopics: [
+      'Algebra & Reciprocal Identities Shortcuts',
+      'Geometry Theorems with Visual Diagrams',
+      'Trigonometry Maxima & Minima Charts',
+      'Ratio, Percentage & Profit-Loss Multipliers',
+      'Time, Speed, Distance & Boat Problems'
+    ],
+    isEnabled: true,
+    downloadLimit: 5,
+    createdAt: '2025-11-10T09:00:00.000Z'
   },
   {
     id: 'prod_upsc_hist_02',
@@ -212,11 +262,23 @@ export const BUILTIN_CATALOG_NOTES: Note[] = [
     price: 499,
     originalPrice: 1499,
     previewImages: [],
-    fileUrl: '#',
-    rating: 4.95,
-    reviewsCount: 240,
+    fileUrl: '',
+    rating: 0,
+    reviewsCount: 0,
     isBestseller: true,
-    studentsBought: '2150'
+    pagesCount: '240+ Pages',
+    updatedLabel: 'UPSC Prelims + Mains Ready',
+    examSuitability: ['UPSC CSE Prelims & Mains', 'State PCS', 'CAPF AC'],
+    keyTopics: [
+      'Constitutional Acts (1773 – 1947)',
+      'Socio-Religious Reform Movements Matrix',
+      'Gandhian Mass Movements Flowcharts',
+      'Parallel Governments & Revolutionary Phase',
+      'Important Congress Sessions & Newspapers'
+    ],
+    isEnabled: true,
+    downloadLimit: 5,
+    createdAt: '2025-10-15T09:00:00.000Z'
   },
   {
     id: 'prod_bank_reason_03',
@@ -227,35 +289,58 @@ export const BUILTIN_CATALOG_NOTES: Note[] = [
     price: 349,
     originalPrice: 899,
     previewImages: [],
-    fileUrl: '#',
-    rating: 4.85,
-    reviewsCount: 160,
+    fileUrl: '',
+    rating: 0,
+    reviewsCount: 0,
     isBestseller: false,
-    studentsBought: '890'
+    pagesCount: '150+ Pages',
+    updatedLabel: 'IBPS & SBI Mains Edition',
+    examSuitability: ['IBPS PO / Clerk', 'SBI PO / Clerk', 'RBI Assistant', 'LIC AAO'],
+    keyTopics: [
+      'Syllogism "Only a Few" Rules',
+      'Circular, Linear & Floor-Flat Puzzles',
+      'Machine Input-Output & Coded Inequality',
+      'RBI Monetary Policy & Basel III Notes'
+    ],
+    isEnabled: true,
+    downloadLimit: 5,
+    createdAt: '2025-09-28T09:00:00.000Z'
   },
   {
     id: 'prod_railway_gs_04',
     title: 'Railways RRB NTPC General Science & Tech Capsule',
     category: 'General Science',
     examType: ExamType.RAILWAYS,
-    description: 'Physics, Chemistry, and Biology handwritten summary with 1,500+ repeat questions from previous 10 years RRB papers.',
+    description: 'Physics, Chemistry, and Biology handwritten summary covering high-frequency concepts, SI units, vitamins, alloys, and previous exam topics.',
     price: 199,
     originalPrice: 599,
     previewImages: [],
-    fileUrl: '#',
-    rating: 4.8,
-    reviewsCount: 95,
+    fileUrl: '',
+    rating: 0,
+    reviewsCount: 0,
     isBestseller: false,
-    studentsBought: '620'
+    pagesCount: '140+ Pages',
+    updatedLabel: 'RRB NTPC & Group D Edition',
+    examSuitability: ['RRB NTPC CBT 1 & 2', 'RRB Group D', 'RRB ALP'],
+    keyTopics: [
+      'Physics Optics, Electricity & SI Units',
+      'Chemistry Alloys, Ores & pH Scale',
+      'Human Biology, Vitamins & Diseases',
+      'ISRO Missions & Defence Technology'
+    ],
+    isEnabled: true,
+    downloadLimit: 5,
+    createdAt: '2025-09-05T09:00:00.000Z'
   }
 ];
 
 export const getBuiltinNoteById = (id?: string): Note | undefined => {
   if (!id) return undefined;
   return BUILTIN_CATALOG_NOTES.find(n => n.id === id) ||
-    (id === 'mock-1' ? BUILTIN_CATALOG_NOTES[0] :
-     id === 'mock-2' ? BUILTIN_CATALOG_NOTES[1] :
-     id === 'mock-3' ? BUILTIN_CATALOG_NOTES[2] : undefined);
+    (id === 'static-gk-2026' ? BUILTIN_CATALOG_NOTES[0] :
+     id === 'mock-1' ? BUILTIN_CATALOG_NOTES[1] :
+     id === 'mock-2' ? BUILTIN_CATALOG_NOTES[2] :
+     id === 'mock-3' ? BUILTIN_CATALOG_NOTES[3] : undefined);
 };
 
 // Client Session & Local Orders Storage Helpers

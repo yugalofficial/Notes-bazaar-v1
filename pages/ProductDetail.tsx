@@ -2,7 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { User, PaymentMode, Note, SiteSettings } from '../types';
 import { auth, db } from '../firebase';
-import { doc, getDoc, collection, addDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  collection,
+  addDoc,
+  setDoc,
+  updateDoc,
+  arrayUnion,
+  getDocs
+} from 'firebase/firestore';
 import emailjs from '@emailjs/browser';
 import { jsPDF } from 'jspdf';
 import confetti from 'canvas-confetti';
@@ -29,18 +38,23 @@ import {
   Wallet,
   Check,
   Tag,
-  CalendarClock
+  CalendarClock,
+  AlertTriangle,
+  RefreshCw,
+  BookOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ReviewSystem } from '../components/ReviewSystem';
 import { NotesBazaarLogo } from '../components/NotesBazaarLogo';
 import { getSafePreviewImages } from '../utils/sampleNotesPages';
+import { BUILTIN_CATALOG_NOTES } from '../utils/appScriptService';
 import {
   appendPurchasedNoteToSession,
   fetchNotesFromGoogleSheets,
   getBuiltinNoteById,
   recordLocalOrder
 } from '../utils/appScriptService';
+import { applySeoMetadata, setStructuredDataJsonLd } from '../utils/seo';
 
 interface ProductDetailProps {
   user: User | null;
@@ -59,9 +73,13 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState<Note | null>(null);
+  const [relatedNotes, setRelatedNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentPendingNotice, setPaymentPendingNotice] = useState<string | null>(null);
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const paypalRef = useRef<HTMLDivElement>(null);
   const [paypalLoaded, setPaypalLoaded] = useState(false);
@@ -76,14 +94,20 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number; origX: number; origY: number } | null>(null);
 
-  // Promo Coupon State
+  // Coupon State
   const [couponInput, setCouponInput] = useState('');
-  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; percent: number } | null>(null);
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountAmount: number } | null>(null);
   const [couponFeedback, setCouponFeedback] = useState<string | null>(null);
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
 
-  // Interactive Razorpay All-Services Checkout State
+  // Demo Checkout Modal State (used ONLY when Live Razorpay Server Keys are not configured)
   const [showDemoPaymentModal, setShowDemoPaymentModal] = useState(false);
   const [demoSimulating, setDemoSimulating] = useState(false);
+  const [pendingOrderData, setPendingOrderData] = useState<{
+    orderId: string;
+    amountInr: number;
+    mode: 'demo' | 'live';
+  } | null>(null);
   const [selectedPayTab, setSelectedPayTab] = useState<RazorpayServiceTab>('upi');
   const [selectedBank, setSelectedBank] = useState('HDFC Bank');
   const [selectedWallet, setSelectedWallet] = useState('PhonePe Wallet');
@@ -94,8 +118,48 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
   const [cardCvvInput, setCardCvvInput] = useState('•••');
 
   useEffect(() => {
+    setAppliedCoupon(null);
+    setCouponFeedback(null);
+    setCouponInput('');
+    setPaymentError(null);
+    setPaymentPendingNotice(null);
+    setDownloadNotice(null);
     fetchProductAndSettings();
   }, [id]);
+
+  // Apply Dynamic SEO & Product JSON-LD
+  useEffect(() => {
+    if (!product) return;
+    applySeoMetadata({
+      title: `${product.title} – NotesBazaar`,
+      description: product.description.slice(0, 155),
+      noIndex: false,
+    });
+    setStructuredDataJsonLd('nb-product-schema', {
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: product.title,
+      description: product.description,
+      category: product.category,
+      brand: { '@type': 'Brand', name: 'NotesBazaar' },
+      offers: {
+        '@type': 'Offer',
+        priceCurrency: 'INR',
+        price: product.price,
+        availability: product.isEnabled === false ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
+      },
+      ...(product.reviewsCount > 0 && product.rating > 0
+        ? {
+            aggregateRating: {
+              '@type': 'AggregateRating',
+              ratingValue: product.rating,
+              reviewCount: product.reviewsCount,
+            },
+          }
+        : {}),
+    });
+    return () => setStructuredDataJsonLd('nb-product-schema', null);
+  }, [product]);
 
   // Keyboard shortcuts inside Full-Screen Zoom Modal
   useEffect(() => {
@@ -136,17 +200,18 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                 purchase_units: [
                   {
                     description: product?.title,
-                    amount: { value: product?.price.toString() }
+                    amount: { value: String(finalPrice) }
                   }
                 ]
               });
             },
             onApprove: async (_data: any, actions: any) => {
               const order = await actions.order.capture();
-              await handlePaymentSuccess(order.id, 'paypal');
+              await handlePaymentSuccess(order.id, order.id, 'paypal', 'PayPal', false);
             },
             onError: (err: any) => {
               console.error('PayPal Error:', err);
+              setPaymentError('PayPal payment could not complete. Please try again.');
             }
           })
           .render(paypalRef.current);
@@ -160,7 +225,6 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
     if (!id) return;
     setLoading(true);
 
-    // Fetch settings safely
     const defaultSettings: SiteSettings = {
       razorpay_key: import.meta.env.VITE_RAZORPAY_KEY_ID || '',
       paypal_client_id: import.meta.env.VITE_PAYPAL_CLIENT_ID || '',
@@ -169,8 +233,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
     };
 
     try {
-      const settingsRef = doc(db, 'settings', 'main');
-      const settingsSnap = await getDoc(settingsRef);
+      const settingsSnap = await getDoc(doc(db, 'settings', 'main'));
       if (settingsSnap.exists()) {
         const settingsData = settingsSnap.data() as SiteSettings;
         setSettings(settingsData);
@@ -180,72 +243,96 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
       } else {
         setSettings(defaultSettings);
       }
-    } catch (e) {
+    } catch {
       setSettings(defaultSettings);
     }
 
-    // 1. Try Google Sheets catalog first if configured
+    let resolvedProduct: Note | null = null;
+
+    // 1. Google Sheets catalog check
     try {
       const sheetNotes = await fetchNotesFromGoogleSheets();
       const matchedSheet = sheetNotes?.find((n) => n.id === id);
-      if (matchedSheet) {
-        setProduct(matchedSheet);
-        setLoading(false);
-        return;
-      }
-    } catch (e) {}
+      if (matchedSheet) resolvedProduct = matchedSheet;
+    } catch {}
 
-    // 2. Try Firestore document
+    // 2. Firestore document lookup
+    if (!resolvedProduct) {
+      try {
+        const productSnap = await getDoc(doc(db, 'products', id));
+        if (productSnap.exists()) {
+          const d = productSnap.data();
+          const builtinTemplate = getBuiltinNoteById(productSnap.id);
+          resolvedProduct = {
+            id: productSnap.id,
+            title: d.title,
+            category: d.category,
+            examType: d.exam_type,
+            description: d.description,
+            price: Number(d.price || 0),
+            originalPrice: d.original_price ? Number(d.original_price) : undefined,
+            previewImages: d.preview_images || [],
+            fileUrl: d.file_url || '',
+            fileName: d.file_name || builtinTemplate?.fileName,
+            fileSizeLabel: d.file_size_label,
+            pagesCount: d.pages_count || builtinTemplate?.pagesCount,
+            updatedLabel: d.updated_label || builtinTemplate?.updatedLabel,
+            examSuitability: d.exam_suitability || builtinTemplate?.examSuitability,
+            keyTopics: d.key_topics || builtinTemplate?.keyTopics,
+            isEnabled: d.is_enabled !== false,
+            isArchived: Boolean(d.is_archived),
+            downloadLimit: d.download_limit || 5,
+            rating: Number(d.rating || 0),
+            reviewsCount: Number(d.reviews_count || 0),
+            isBestseller: Boolean(d.is_bestseller),
+            studentsBought: d.students_bought
+          };
+        }
+      } catch (err) {
+        console.warn('Firestore product lookup failed, trying builtin catalog:', err);
+      }
+    }
+
+    // 3. Builtin Catalog Fallback
+    if (!resolvedProduct) {
+      resolvedProduct = getBuiltinNoteById(id) || null;
+    }
+
+    setProduct(resolvedProduct);
+
+    // Load Related Notes
     try {
-      const productRef = doc(db, 'products', id);
-      const productSnap = await getDoc(productRef);
-
-      if (productSnap.exists()) {
-        const productData = productSnap.data();
-        setProduct({
-          id: productSnap.id,
-          title: productData.title,
-          category: productData.category,
-          examType: productData.exam_type,
-          description: productData.description,
-          price: productData.price,
-          originalPrice: productData.original_price,
-          previewImages: productData.preview_images || [],
-          fileUrl: productData.file_url,
-          rating: productData.rating,
-          reviewsCount: productData.reviews_count,
-          isBestseller: productData.is_bestseller,
-          studentsBought: productData.students_bought
-        });
-        setLoading(false);
-        return;
-      }
-    } catch (err) {
-      console.warn('Firestore product lookup failed, trying builtin catalog:', err);
+      const prodSnap = await getDocs(collection(db, 'products'));
+      const pool: Note[] = !prodSnap.empty
+        ? prodSnap.docs.map((docSnap) => {
+            const d = docSnap.data();
+            return {
+              id: docSnap.id,
+              title: d.title,
+              category: d.category || 'Study Material',
+              examType: d.exam_type,
+              description: d.description || '',
+              price: Number(d.price || 0),
+              originalPrice: d.original_price ? Number(d.original_price) : undefined,
+              previewImages: d.preview_images || [],
+              fileUrl: d.file_url || '',
+              rating: Number(d.rating || 0),
+              reviewsCount: Number(d.reviews_count || 0),
+              isBestseller: Boolean(d.is_bestseller),
+              isEnabled: d.is_enabled !== false,
+              isArchived: Boolean(d.is_archived)
+            };
+          })
+        : BUILTIN_CATALOG_NOTES;
+      setRelatedNotes(
+        pool
+          .filter((item) => item.id !== id && item.isEnabled !== false && !item.isArchived)
+          .slice(0, 3)
+      );
+    } catch {
+      setRelatedNotes(BUILTIN_CATALOG_NOTES.filter((item) => item.id !== id).slice(0, 3));
     }
 
-    // 3. Builtin Catalog Fallback (matches IDs used on Home / Shop / Sheets)
-    const builtinMatch = getBuiltinNoteById(id);
-    if (builtinMatch) {
-      setProduct(builtinMatch);
-    } else {
-      setProduct({
-        id: id || 'prod_ssc_math_01',
-        title: 'Premium Handwritten Study Material',
-        category: 'General Studies',
-        examType: 'SSC' as any,
-        description:
-          'High-quality, topper-verified handwritten notes designed for comprehensive exam preparation. Includes shortcuts, diagrams, and easy-to-understand explanations.',
-        price: 299,
-        originalPrice: 999,
-        previewImages: [],
-        fileUrl: '#',
-        rating: 4.8,
-        reviewsCount: 120,
-        isBestseller: true,
-        studentsBought: '850'
-      });
-    }
     setLoading(false);
   };
 
@@ -298,23 +385,49 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
     pdf.setFontSize(10);
     pdf.setTextColor(150);
     pdf.text('Thank you for choosing NotesBazaar — Your Study Partner!', 20, 160);
-    pdf.text('This is a computer-generated invoice.', 20, 167);
     return pdf;
+  };
+
+  const logFailedOrCancelledOrder = async (
+    orderId: string,
+    paymentId: string,
+    reason: string,
+    status: 'failed' | 'pending'
+  ) => {
+    if (!product || !auth.currentUser) return;
+    try {
+      await addDoc(collection(db, 'orders'), {
+        uid: auth.currentUser.uid,
+        user_email: auth.currentUser.email || user?.email || '',
+        amount: Number(finalPrice) || 0,
+        status,
+        product_id: product.id,
+        product_title: product.title,
+        payment_id: paymentId || orderId,
+        razorpay_order_id: orderId,
+        provider: 'razorpay',
+        payment_method: reason.slice(0, 75),
+        verified_by_server: false,
+        created_at: new Date().toISOString()
+      });
+    } catch {}
   };
 
   const handlePaymentSuccess = async (
     paymentId: string,
+    razorpayOrderId: string,
     provider: 'razorpay' | 'paypal' | 'razorpay_demo',
-    paymentMethodLabel?: string
+    paymentMethodLabel: string,
+    verifiedByServer: boolean
   ) => {
     if (!product) return;
     setProcessing(true);
     const userEmail = user?.email || 'guest@example.com';
     const userName = user?.displayName || 'Aspirant';
-    const targetFileUrl = product.fileUrl && product.fileUrl !== '#' ? product.fileUrl : `${window.location.origin}/#/dashboard`;
+    const targetFileUrl =
+      product.fileUrl && product.fileUrl !== '#' ? product.fileUrl : `${window.location.origin}/#/dashboard`;
 
     try {
-      // 1. Persist purchase & local order ledger immediately
       appendPurchasedNoteToSession(product.id);
       recordLocalOrder({
         id: paymentId,
@@ -325,56 +438,74 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
         status: 'paid',
         payment_id: paymentId,
         provider,
-        payment_method: paymentMethodLabel || 'Razorpay',
+        payment_method: paymentMethodLabel,
         created_at: new Date().toISOString()
       });
 
-      // 2. Record Order & Unlock Note in Firestore when Firebase Auth session is active
       if (auth.currentUser) {
         const fbEmail = auth.currentUser.email || userEmail;
+        let firestoreOrderId = paymentId;
         try {
-          await addDoc(collection(db, 'orders'), {
+          const ordDoc = await addDoc(collection(db, 'orders'), {
             uid: auth.currentUser.uid,
             user_email: fbEmail,
             amount: Number(finalPrice) || 0,
+            subtotal: Number(product.price) || 0,
+            discount_amount: appliedCoupon ? appliedCoupon.discountAmount : 0,
+            coupon_code: appliedCoupon?.code || '',
             status: 'paid',
             product_id: product.id,
             product_title: product.title,
             payment_id: paymentId,
+            razorpay_order_id: razorpayOrderId,
             provider,
-            payment_method: paymentMethodLabel || 'Razorpay',
+            payment_method: paymentMethodLabel,
+            verified_by_server: verifiedByServer,
+            download_count: 0,
             created_at: new Date().toISOString()
           });
+          firestoreOrderId = ordDoc.id;
         } catch (dbErr) {
-          console.warn('Firestore order record note (recorded locally & via Sheets):', dbErr);
+          console.warn('Firestore order record note:', dbErr);
         }
 
         try {
-          const userRef = doc(db, 'users', auth.currentUser.uid);
-          await updateDoc(userRef, {
+          await setDoc(
+            doc(db, 'entitlements', `${auth.currentUser.uid}_${product.id}`),
+            {
+              uid: auth.currentUser.uid,
+              userEmail: fbEmail,
+              productId: product.id,
+              orderId: firestoreOrderId,
+              downloadsUsed: 0,
+              downloadLimit: product.downloadLimit || 5,
+              grantedAt: new Date().toISOString()
+            },
+            { merge: true }
+          );
+        } catch {}
+
+        try {
+          await updateDoc(doc(db, 'users', auth.currentUser.uid), {
             purchasedNotes: arrayUnion(product.id),
             updatedAt: new Date().toISOString()
           });
-        } catch (uErr) {
-          console.warn('Could not update user record directly in Firestore:', uErr);
-        }
+        } catch {}
 
         try {
           await addDoc(collection(db, 'activity_logs'), {
             uid: auth.currentUser.uid,
             userEmail: fbEmail,
             action: 'ORDER_PAID',
-            details: `Purchased ${product.title} (₹${finalPrice}) via ${paymentMethodLabel || provider}`,
+            details: `Verified order for ${product.title} (₹${finalPrice}) via ${paymentMethodLabel}`,
             createdAt: new Date().toISOString()
           });
-        } catch (logErr) {}
+        } catch {}
       }
 
-      // 4. Generate Invoice PDF
       const invoiceDoc = generateInvoice(paymentId);
       const invoiceBase64 = invoiceDoc?.output('datauristring');
 
-      // 5. Automated Google Apps Script Delivery
       const appScriptUrl = settings?.appscript_webhook_url;
       try {
         const { dispatchAppScriptEmailDelivery } = await import('../utils/deliveryService');
@@ -397,11 +528,8 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
           invoiceDataUri: invoiceBase64,
           supportEmail: settings?.contact_email || 'support@notesbazaar.co'
         });
-      } catch (appScriptErr) {
-        console.warn('Apps Script delivery dispatch error:', appScriptErr);
-      }
+      } catch {}
 
-      // 6. Fallback Email via EmailJS
       const serviceId = settings?.emailjs_service_id || import.meta.env.VITE_EMAILJS_SERVICE_ID;
       const templateId = settings?.emailjs_template_id || import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
       const publicKey = settings?.emailjs_public_key || import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
@@ -417,20 +545,17 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
               product_name: product.title,
               download_link: targetFileUrl,
               order_id: paymentId,
-              amount: product.price,
+              amount: finalPrice,
               invoice_pdf: invoiceBase64
             },
             publicKey
           );
-        } catch (e) {
-          console.warn('EmailJS send failed:', e);
-        }
+        } catch {}
       }
 
-      // 7. Celebration Confetti
       confetti({
-        particleCount: 160,
-        spread: 80,
+        particleCount: 150,
+        spread: 75,
         origin: { y: 0.6 },
         colors: ['#1D4ED8', '#0D9488', '#059669', '#F59E0B']
       });
@@ -450,74 +575,215 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
     }
   };
 
-  const handleSecureDownload = () => {
-    if (!product) return;
+  const handleSecureDownload = async () => {
+    if (!product || !user) return;
     setDownloading(true);
-    if (product.fileUrl && product.fileUrl !== '#') {
-      window.open(product.fileUrl, '_blank');
+    setDownloadNotice(null);
+
+    try {
+      const hasRealPdf = Boolean(product.fileUrl && product.fileUrl.trim() && product.fileUrl !== '#');
+      if (!hasRealPdf) {
+        setDownloadNotice(
+          'Your purchase is verified, and the full PDF file is pending attachment in the Admin File Vault. Please check your Dashboard Library shortly or contact support.'
+        );
+        setDownloading(false);
+        return;
+      }
+
+      // Check download allowance with backend if available
+      let currentDownloads = 0;
+      const entId = `${user.uid}_${product.id}`;
+      try {
+        const entSnap = await getDoc(doc(db, 'entitlements', entId));
+        if (entSnap.exists()) {
+          currentDownloads = Number(entSnap.data().downloadsUsed || 0);
+        }
+      } catch {}
+
+      try {
+        const authResp = await fetch('/api/downloads/authorize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productId: product.id,
+            userEmail: user.email,
+            currentDownloads,
+            downloadLimit: product.downloadLimit || 5,
+            fileUrl: product.fileUrl
+          })
+        });
+        const contentType = authResp.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const authData = await authResp.json();
+          if (!authResp.ok || !authData.authorized) {
+            setDownloadNotice(authData.error || 'Download authorization declined.');
+            setDownloading(false);
+            return;
+          }
+        }
+      } catch {
+        // Static-host fallback: check client allowance directly
+        if (currentDownloads >= (product.downloadLimit || 5)) {
+          setDownloadNotice('Download limit reached for this study pack. Please open a support ticket in your Dashboard.');
+          setDownloading(false);
+          return;
+        }
+      }
+
+      // Log download in Firestore
+      if (auth.currentUser) {
+        try {
+          await addDoc(collection(db, 'downloads'), {
+            uid: auth.currentUser.uid,
+            userEmail: auth.currentUser.email || user.email,
+            productId: product.id,
+            productTitle: product.title,
+            downloadedAt: new Date().toISOString()
+          });
+          await updateDoc(doc(db, 'entitlements', entId), {
+            downloadsUsed: currentDownloads + 1
+          });
+        } catch {}
+      }
+
+      // Trigger real download / open PDF safely (anchor download works inside iframes without popup blockers)
+      if (product.fileUrl.startsWith('data:application/pdf')) {
+        const a = document.createElement('a');
+        a.href = product.fileUrl;
+        a.download = product.fileName || `${product.title.replace(/[^a-z0-9]/gi, '_').slice(0, 32)}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } else {
+        const a = document.createElement('a');
+        a.href = product.fileUrl;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+    } finally {
       setTimeout(() => setDownloading(false), 600);
+    }
+  };
+
+  // Server-Authoritative Razorpay Order Creation + Signature Verification
+  const handleRazorpayPayment = async () => {
+    if (!product || !user) return;
+    if (product.isEnabled === false) {
+      setPaymentError('This study material is currently unavailable for purchase.');
       return;
     }
 
-    // Generate clean multi-page PDF study capsule when using demo/sample catalog link
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    pdf.setFillColor(29, 78, 216);
-    pdf.rect(0, 0, 210, 32, 'F');
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFont('Helvetica', 'bold');
-    pdf.setFontSize(20);
-    pdf.text('NOTESBAZAAR • VERIFIED TOPPER NOTES', 15, 16);
-    pdf.setFontSize(10);
-    pdf.text(`${product.examType} | ${product.category} — Your Study Partner`, 15, 24);
+    setPaymentError(null);
+    setPaymentPendingNotice(null);
+    setProcessing(true);
 
-    pdf.setTextColor(15, 23, 42);
-    pdf.setFontSize(16);
-    pdf.text(product.title, 15, 48);
-    pdf.setFont('Helvetica', 'normal');
-    pdf.setFontSize(11);
-    pdf.setTextColor(71, 85, 105);
-    const wrapped = pdf.splitTextToSize(product.description, 180);
-    pdf.text(wrapped, 15, 58);
+    try {
+      const clientMode = settings?.razorpay_mode === 'live' ? 'live' : 'demo';
 
-    pdf.setDrawColor(13, 148, 136);
-    pdf.setFillColor(240, 253, 250);
-    pdf.rect(15, 85, 180, 150, 'FD');
-    pdf.setFont('Helvetica', 'bold');
-    pdf.setTextColor(13, 148, 136);
-    pdf.text('HIGH-YIELD EXAM SUMMARY SHEET', 22, 98);
-    pdf.setFont('Helvetica', 'normal');
-    pdf.setTextColor(30, 41, 59);
-    pdf.setFontSize(10.5);
-    pdf.text('• Complete Topic-wise Formula & Timeline Digest included.', 22, 112);
-    pdf.text('• Previous Year Questions (PYQ) High-Probability Patterns marked.', 22, 122);
-    pdf.text('• Licensed exclusively to: ' + (user?.email || 'Verified Aspirant'), 22, 132);
-    pdf.save(`${product.title.replace(/[^a-z0-9]/gi, '_').slice(0, 32)}.pdf`);
-    setTimeout(() => setDownloading(false), 600);
-  };
-
-  // Live or Demo Razorpay Payment Execution (supports all professional payment methods)
-  const handleRazorpayPayment = async () => {
-    if (!product) return;
-
-    const activeKey = settings?.razorpay_key?.trim();
-    const isLiveKey = activeKey && !activeKey.includes('demo') && activeKey.startsWith('rzp_');
-
-    if (isLiveKey && (window as any).Razorpay) {
-      setProcessing(true);
+      // 1. Request server-created order
+      let orderPayload: any = null;
       try {
+        const orderRes = await fetch('/api/razorpay/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productId: product.id,
+            userEmail: user.email,
+            couponCode: appliedCoupon?.code || undefined,
+            fallbackPrice: product.price,
+            fallbackTitle: product.title,
+            clientMode
+          })
+        });
+        const ct = orderRes.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          orderPayload = await orderRes.json();
+          if (!orderRes.ok || !orderPayload.success) {
+            throw new Error(orderPayload.error || 'Could not initialize Razorpay order.');
+          }
+        }
+      } catch (apiErr: any) {
+        // Only fall back cleanly if API route is unavailable (e.g. GitHub Pages static deploy)
+        if (apiErr?.message && !apiErr.message.includes('Unexpected token')) {
+          throw apiErr;
+        }
+      }
+
+      if (!orderPayload) {
+        orderPayload = {
+          success: true,
+          mode: 'demo',
+          orderId: `order_demo_${Date.now()}`,
+          keyId: settings?.razorpay_key || 'rzp_test_demo_mode',
+          amountInr: finalPrice,
+          amountPaise: finalPrice * 100
+        };
+      }
+
+      // Free 100% coupon completion
+      if (orderPayload.isFreeWithCoupon || orderPayload.amountInr === 0) {
+        await handlePaymentSuccess(
+          `pay_coupon_${Date.now()}`,
+          orderPayload.orderId,
+          'razorpay_demo',
+          `Coupon (${appliedCoupon?.code})`,
+          true
+        );
+        return;
+      }
+
+      // 2. Live Razorpay Checkout when backend reports Live Mode ready
+      const activeKey = orderPayload.keyId || settings?.razorpay_key?.trim() || '';
+      const shouldUseLiveSdk = orderPayload.mode === 'live' && activeKey.startsWith('rzp_') && window.Razorpay;
+
+      if (shouldUseLiveSdk) {
         const options = {
           key: activeKey,
-          amount: Math.round(finalPrice * 100),
+          order_id: orderPayload.orderId,
+          amount: orderPayload.amountPaise,
           currency: 'INR',
           name: 'NotesBazaar',
-          description: `Study Material: ${product.title}`,
+          description: `Digital PDF: ${product.title}`,
           handler: async function (response: any) {
-            await handlePaymentSuccess(response.razorpay_payment_id || `pay_${Date.now()}`, 'razorpay', 'Razorpay Live');
+            try {
+              const verifyRes = await fetch('/api/razorpay/verify-payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id || orderPayload.orderId,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                  productId: product.id,
+                  expectedAmountInr: orderPayload.amountInr,
+                  couponCode: appliedCoupon?.code,
+                  mode: 'live'
+                })
+              });
+              const verifyJson = await verifyRes.json();
+              if (!verifyRes.ok || !verifyJson.verified) {
+                setPaymentError(verifyJson.error || 'Payment signature verification failed. No access granted.');
+                await logFailedOrCancelledOrder(orderPayload.orderId, response.razorpay_payment_id || 'unknown', 'Signature failed', 'failed');
+                setProcessing(false);
+                return;
+              }
+              await handlePaymentSuccess(
+                verifyJson.paymentId,
+                verifyJson.orderId,
+                'razorpay',
+                verifyJson.paymentMethod || 'Razorpay Verified',
+                true
+              );
+            } catch {
+              setPaymentError('Unable to verify payment signature with server. If debited, open a Support Ticket with your Payment ID.');
+              setProcessing(false);
+            }
           },
           prefill: {
-            name: user?.displayName || 'Aspirant',
-            email: user?.email || '',
-            contact: ''
+            name: user.displayName || 'Aspirant',
+            email: user.email || ''
           },
           notes: {
             product_id: product.id,
@@ -531,47 +797,90 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
             emi: true,
             paylater: true
           },
-          theme: {
-            color: '#0D9488'
-          },
+          theme: { color: '#0D9488' },
           modal: {
-            ondismiss: () => setProcessing(false)
+            ondismiss: async () => {
+              setPaymentPendingNotice('Checkout window closed before payment completion. Your card/UPI was not charged by NotesBazaar.');
+              await logFailedOrCancelledOrder(orderPayload.orderId, `cancel_${Date.now()}`, 'Checkout dismissed', 'pending');
+              setProcessing(false);
+            }
           }
         };
-        const rzp1 = new (window as any).Razorpay(options);
-        rzp1.on('payment.failed', function (resp: any) {
-          console.warn('Payment failed:', resp.error?.description);
+
+        const rzp = new window.Razorpay(options);
+        rzp.on('payment.failed', async (resp: any) => {
+          const reason = resp?.error?.description || 'Transaction failed at bank/UPI.';
+          setPaymentError(`Payment failed: ${reason} You can retry below.`);
+          await logFailedOrCancelledOrder(
+            orderPayload.orderId,
+            resp?.error?.metadata?.payment_id || `fail_${Date.now()}`,
+            reason,
+            'failed'
+          );
           setProcessing(false);
         });
-        rzp1.open();
+        rzp.open();
         return;
-      } catch (err) {
-        console.warn('Razorpay live modal fallback to interactive checkout:', err);
       }
-    }
 
-    setShowDemoPaymentModal(true);
+      // 3. Controlled Demo Checkout Modal (explicitly labeled Demo Mode)
+      setPendingOrderData({
+        orderId: orderPayload.orderId,
+        amountInr: orderPayload.amountInr,
+        mode: 'demo'
+      });
+      setProcessing(false);
+      setShowDemoPaymentModal(true);
+    } catch (err: any) {
+      setPaymentError(err?.message || 'Could not start Razorpay checkout. Please try again.');
+      setProcessing(false);
+    }
   };
 
   const executeDemoPayment = async () => {
+    if (!product) return;
     setDemoSimulating(true);
-    const demoPaymentId = `pay_nb_${selectedPayTab}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+    const demoPaymentId = `pay_demo_${selectedPayTab}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+    const orderId = pendingOrderData?.orderId || `order_demo_${Date.now()}`;
     const methodLabel =
       selectedPayTab === 'upi'
-        ? `UPI (${upiIdInput || 'QR Instant'})`
+        ? `Demo UPI (${upiIdInput || 'QR'})`
         : selectedPayTab === 'card'
-          ? 'Credit / Debit Card'
+          ? 'Demo Card'
           : selectedPayTab === 'netbanking'
-            ? `Netbanking (${selectedBank})`
+            ? `Demo Netbanking (${selectedBank})`
             : selectedPayTab === 'emi'
-              ? `PayLater / EMI (${selectedEmiOption})`
-              : `Wallet (${selectedWallet})`;
+              ? `Demo PayLater (${selectedEmiOption})`
+              : `Demo Wallet (${selectedWallet})`;
 
-    setTimeout(async () => {
+    try {
+      const verifyRes = await fetch('/api/razorpay/verify-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: orderId,
+          razorpay_payment_id: demoPaymentId,
+          productId: product.id,
+          expectedAmountInr: finalPrice,
+          mode: 'demo'
+        })
+      });
+      const ct = verifyRes.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const vj = await verifyRes.json();
+        if (!verifyRes.ok || !vj.verified) {
+          throw new Error(vj.error || 'Demo verification failed.');
+        }
+      }
       setShowDemoPaymentModal(false);
       setDemoSimulating(false);
-      await handlePaymentSuccess(demoPaymentId, 'razorpay_demo', methodLabel);
-    }, 1100);
+      await handlePaymentSuccess(demoPaymentId, orderId, 'razorpay_demo', methodLabel, true);
+    } catch {
+      // Static deploy fallback
+      setShowDemoPaymentModal(false);
+      setDemoSimulating(false);
+      await handlePaymentSuccess(demoPaymentId, orderId, 'razorpay_demo', methodLabel, false);
+    }
   };
 
   const initPayment = async (mode: PaymentMode) => {
@@ -582,24 +891,93 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
     if (mode === PaymentMode.RAZORPAY) await handleRazorpayPayment();
   };
 
+  const handleApplyCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!product) return;
+    const code = couponInput.trim().toUpperCase();
+    if (!code) return;
+
+    setValidatingCoupon(true);
+    setCouponFeedback(null);
+
+    try {
+      const resp = await fetch('/api/coupons/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: product.id,
+          couponCode: code,
+          fallbackPrice: product.price
+        })
+      });
+      const ct = resp.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const data = await resp.json();
+        if (resp.ok && data.valid) {
+          setAppliedCoupon({ code: data.code, discountAmount: Number(data.discountAmount || 0) });
+          setCouponFeedback(`Applied "${data.code}" — Saved ₹${data.discountAmount}!`);
+          setValidatingCoupon(false);
+          return;
+        }
+        setAppliedCoupon(null);
+        setCouponFeedback(data.error || 'Invalid or expired coupon code.');
+        setValidatingCoupon(false);
+        return;
+      }
+    } catch {
+      // Fallback to Firestore direct lookup when hosted statically
+    }
+
+    try {
+      const couponSnap = await getDoc(doc(db, 'coupons', code));
+      if (couponSnap.exists()) {
+        const c = couponSnap.data();
+        if (c.isActive && (!c.expiresAt || new Date(c.expiresAt).getTime() > Date.now())) {
+          const disc =
+            c.discountType === 'percent'
+              ? Math.round((product.price * Number(c.discountValue)) / 100)
+              : Math.round(Number(c.discountValue));
+          setAppliedCoupon({ code, discountAmount: Math.min(product.price, disc) });
+          setCouponFeedback(`Applied "${code}" — Saved ₹${Math.min(product.price, disc)}!`);
+          setValidatingCoupon(false);
+          return;
+        }
+      }
+      const adminPromo = (settings?.promo_code || '').trim().toUpperCase();
+      const adminPct = Number(settings?.promo_discount_percent || 0);
+      if (adminPromo && code === adminPromo && adminPct > 0) {
+        const disc = Math.round((product.price * adminPct) / 100);
+        setAppliedCoupon({ code, discountAmount: disc });
+        setCouponFeedback(`Applied "${code}" (${adminPct}% OFF) — Saved ₹${disc}!`);
+      } else {
+        setAppliedCoupon(null);
+        setCouponFeedback('Invalid or expired coupon code.');
+      }
+    } catch {
+      setAppliedCoupon(null);
+      setCouponFeedback('Unable to validate coupon right now.');
+    } finally {
+      setValidatingCoupon(false);
+    }
+  };
+
   const handleShare = async () => {
     const shareUrl = window.location.href;
     try {
       if (navigator.share) {
         await navigator.share({
-          title: product?.title || 'NotesBazaar Handwritten Notes',
-          text: `Check out these topper-verified ${product?.examType} notes on NotesBazaar!`,
+          title: product?.title || 'NotesBazaar Digital Notes',
+          text: `Inspect ${product?.title} on NotesBazaar`,
           url: shareUrl
         });
         return;
       }
-    } catch (e) {}
-
+    } catch {}
     try {
       await navigator.clipboard.writeText(shareUrl);
       setShareCopied(true);
       setTimeout(() => setShareCopied(false), 2500);
-    } catch (e) {}
+    } catch {}
   };
 
   // Zoom Modal helpers
@@ -652,36 +1030,19 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
   };
 
   const isPurchased = Boolean(user?.purchasedNotes?.includes(id || ''));
-  const previewImagesList = product ? getSafePreviewImages(product.examType, product.previewImages) : [];
+  const previewImagesList = product
+    ? getSafePreviewImages(product.examType, product.previewImages, `${product.title} ${product.id}`)
+    : [];
   const finalPrice = product
-    ? Math.max(1, Math.round(product.price * (1 - (appliedCoupon?.percent || 0) / 100)))
+    ? Math.max(0, product.price - (appliedCoupon?.discountAmount || 0))
     : 0;
-
-  const handleApplyCoupon = (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = couponInput.trim().toUpperCase();
-    const configuredCode = (settings?.promo_code || 'TOPPER10').trim().toUpperCase();
-    const configuredPct = Number(settings?.promo_discount_percent || 10);
-
-    if (!code) return;
-    if (code === configuredCode) {
-      setAppliedCoupon({ code, percent: Math.min(80, Math.max(1, configuredPct)) });
-      setCouponFeedback(`Applied "${code}" — ${configuredPct}% student discount unlocked!`);
-    } else if (code === 'EXAM20') {
-      setAppliedCoupon({ code: 'EXAM20', percent: 20 });
-      setCouponFeedback('Applied "EXAM20" — 20% topper discount unlocked!');
-    } else {
-      setAppliedCoupon(null);
-      setCouponFeedback(`Invalid code. Try ${configuredCode} for ${configuredPct}% off.`);
-    }
-  };
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Loading handwritten notes...</p>
+          <p className="text-slate-500 dark:text-slate-400 font-medium">Loading digital study guide...</p>
         </div>
       </div>
     );
@@ -693,16 +1054,17 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
         <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-6">
           <Info size={32} className="text-slate-400" />
         </div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Product Not Found</h1>
-        <p className="text-slate-500 dark:text-slate-400 mb-8">The notes you are looking for might have been moved.</p>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Study Pack Not Found</h1>
+        <p className="text-slate-500 dark:text-slate-400 mb-8">The notes you requested could not be found.</p>
         <Link to="/shop" className="premium-button-primary">
-          Back to Library
+          Back to Notes Library
         </Link>
       </div>
     );
   }
 
   const isModalPageLocked = !isPurchased && activePreviewIdx > 0;
+  const hasRealPdfAttached = Boolean(product.fileUrl && product.fileUrl.trim() && product.fileUrl !== '#');
 
   return (
     <div className="min-h-screen pb-36 md:pb-20">
@@ -716,21 +1078,19 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
             <ArrowLeft size={18} /> Back
           </button>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleShare}
-              className="flex items-center gap-2 px-3.5 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors text-xs font-bold cursor-pointer"
-            >
-              {shareCopied ? <Check size={16} className="text-emerald-600" /> : <Share2 size={16} />}
-              <span>{shareCopied ? 'Link Copied!' : 'Share'}</span>
-            </button>
-          </div>
+          <button
+            onClick={handleShare}
+            className="flex items-center gap-2 px-3.5 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors text-xs font-bold cursor-pointer"
+          >
+            {shareCopied ? <Check size={16} className="text-emerald-600" /> : <Share2 size={16} />}
+            <span>{shareCopied ? 'Link Copied!' : 'Share'}</span>
+          </button>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid lg:grid-cols-3 gap-10">
-          {/* Main Content: Preview */}
+          {/* Main Content */}
           <div className="lg:col-span-2 space-y-7">
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2.5 text-xs font-semibold">
@@ -739,24 +1099,54 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                 </span>
                 <span className="text-slate-300 dark:text-slate-700">·</span>
                 <span className="text-slate-500 dark:text-slate-400">{product.category}</span>
-                <span className="text-slate-300 dark:text-slate-700">·</span>
-                <div className="flex items-center gap-1 text-amber-500">
-                  <Star size={14} fill="currentColor" />
-                  <span className="font-bold text-slate-800 dark:text-slate-200">{product.rating || '4.8'}</span>
-                  <span className="text-slate-400">({product.reviewsCount || '120'} reviews)</span>
-                </div>
+                {product.pagesCount && (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+                    <span className="text-emerald-700 dark:text-emerald-400 font-bold">{product.pagesCount}</span>
+                  </>
+                )}
+                {product.updatedLabel && (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+                    <span className="text-slate-500 dark:text-slate-400">{product.updatedLabel}</span>
+                  </>
+                )}
+                {product.reviewsCount > 0 && product.rating > 0 && (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+                    <div className="flex items-center gap-1 text-amber-500">
+                      <Star size={14} fill="currentColor" />
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{product.rating}</span>
+                      <span className="text-slate-400">({product.reviewsCount} reviews)</span>
+                    </div>
+                  </>
+                )}
               </div>
+
               <h1 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white font-heading leading-tight">
                 {product.title}
               </h1>
               <p className="text-slate-600 dark:text-slate-300 leading-relaxed">{product.description}</p>
+
+              {product.examSuitability && product.examSuitability.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {product.examSuitability.map((ex) => (
+                    <span
+                      key={ex}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-semibold"
+                    >
+                      {ex}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Tabs */}
-            <div className="flex border-b border-slate-200 dark:border-slate-800">
+            <div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
               <button
                 onClick={() => setActiveTab('preview')}
-                className={`px-5 py-3 font-bold text-sm transition-all relative cursor-pointer ${
+                className={`px-5 py-3 font-bold text-sm transition-all relative whitespace-nowrap cursor-pointer ${
                   activeTab === 'preview' ? 'text-primary' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
                 }`}
               >
@@ -765,20 +1155,20 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
               </button>
               <button
                 onClick={() => setActiveTab('details')}
-                className={`px-5 py-3 font-bold text-sm transition-all relative cursor-pointer ${
+                className={`px-5 py-3 font-bold text-sm transition-all relative whitespace-nowrap cursor-pointer ${
                   activeTab === 'details' ? 'text-primary' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
                 }`}
               >
-                Study Details
+                Syllabus &amp; Topics
                 {activeTab === 'details' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
               </button>
               <button
                 onClick={() => setActiveTab('reviews')}
-                className={`px-5 py-3 font-bold text-sm transition-all relative cursor-pointer ${
+                className={`px-5 py-3 font-bold text-sm transition-all relative whitespace-nowrap cursor-pointer ${
                   activeTab === 'reviews' ? 'text-primary' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
                 }`}
               >
-                Reviews &amp; Ratings
+                Verified Reviews ({product.reviewsCount || 0})
                 {activeTab === 'reviews' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
               </button>
             </div>
@@ -786,7 +1176,6 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
             <div>
               {activeTab === 'preview' && (
                 <div className="space-y-5">
-                  {/* Top Bar: Zoom Trigger + Page Switcher */}
                   <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:px-5 flex flex-wrap items-center justify-between gap-3 shadow-sm">
                     <div className="flex items-center gap-2.5 text-xs font-bold">
                       <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
@@ -805,7 +1194,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                     </button>
                   </div>
 
-                  {/* Interactive Main Preview Canvas */}
+                  {/* Preview Canvas */}
                   <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm relative p-4 sm:p-8">
                     <div
                       onClick={() => openZoomModal(activePreviewIdx)}
@@ -819,14 +1208,12 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                         alt={`${product.title} — Preview Page ${activePreviewIdx + 1}`}
                       />
 
-                      {/* Floating Zoom Lens Affordance for Unlocked/Sample Page */}
                       {(isPurchased || activePreviewIdx === 0) && (
                         <div className="absolute bottom-4 right-4 bg-slate-900/85 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xl opacity-95 group-hover:bg-blue-700 transition-colors">
                           <ZoomIn size={16} /> Click to Zoom Full Screen
                         </div>
                       )}
 
-                      {/* Locked Overlay ONLY for Page 2+ when unpurchased */}
                       {!isPurchased && activePreviewIdx > 0 && (
                         <div
                           onClick={(e) => e.stopPropagation()}
@@ -844,20 +1231,20 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                               Unlock Page {activePreviewIdx + 1} &amp; Full PDF
                             </h3>
                             <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm leading-relaxed">
-                              You&apos;ve inspected Page 1 free sample. Unlock the complete high-resolution study pack for instant PDF download and email delivery.
+                              You&apos;ve inspected Page 1 sample. Complete secure payment to unlock full access in your Student Library.
                             </p>
                             <button
                               onClick={() => initPayment(PaymentMode.RAZORPAY)}
                               className="w-full premium-button-primary py-4 rounded-2xl"
                             >
-                              Unlock Full Notes for ₹{product.price}
+                              Unlock Full Notes for ₹{finalPrice}
                             </button>
                           </motion.div>
                         </div>
                       )}
                     </div>
 
-                    {/* Page Thumbnails Selector */}
+                    {/* Thumbnails */}
                     <div className="mt-5 flex items-center gap-3 overflow-x-auto pb-2">
                       {previewImagesList.map((thumb, idx) => {
                         const locked = !isPurchased && idx > 0;
@@ -891,42 +1278,59 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
 
               {activeTab === 'details' && (
                 <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-8">
-                  <div className="grid sm:grid-cols-2 gap-8">
+                  <div className="grid sm:grid-cols-2 gap-6">
                     <div className="space-y-1">
                       <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Exam Target</p>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white">{product.examType}</p>
+                      <p className="text-base font-bold text-slate-900 dark:text-white">
+                        {product.examSuitability?.join(', ') || product.examType}
+                      </p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Format</p>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white">High-Res Print-Ready PDF</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Format &amp; Length</p>
+                      <p className="text-base font-bold text-slate-900 dark:text-white">
+                        Digital PDF Notes {product.pagesCount ? `(${product.pagesCount})` : ''}
+                      </p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Preview Pages</p>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white">{previewImagesList.length}+ Sample Sheets</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Content Currency</p>
+                      <p className="text-base font-bold text-slate-900 dark:text-white">
+                        {product.updatedLabel || 'Current Exam Syllabus'}
+                      </p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Delivery</p>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white">Instant Email + Dashboard</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Delivery Policy</p>
+                      <p className="text-base font-bold text-slate-900 dark:text-white">
+                        PDF Unlock After Payment Verification
+                      </p>
                     </div>
                   </div>
 
                   <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
-                    <h4 className="font-bold text-slate-900 dark:text-white mb-4">What&apos;s included:</h4>
-                    <ul className="grid sm:grid-cols-2 gap-4">
-                      {[
-                        'Complete Syllabus Coverage',
-                        'Topper Curated Shortcuts',
-                        'Zoom-Clear Vector & Scan Layouts',
-                        'Print-Ready A4 PDF Formatting',
-                        'Lifetime Free Syllabus Updates',
-                        'Instant Automated Email Delivery'
-                      ].map((item, i) => (
-                        <li key={i} className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
-                          <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
-                          {item}
+                    <h4 className="font-bold text-slate-900 dark:text-white mb-4">Key Topics &amp; Coverage Included:</h4>
+                    <ul className="grid sm:grid-cols-2 gap-3.5">
+                      {(product.keyTopics && product.keyTopics.length > 0
+                        ? product.keyTopics
+                        : [
+                            'Complete Syllabus Coverage',
+                            'Exam-Oriented Tables & Formulas',
+                            'Zoom-Clear Layouts for Phone & Tablet',
+                            'Print-Ready A4 PDF Formatting'
+                          ]
+                      ).map((item, i) => (
+                        <li key={i} className="flex items-start gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+                          <CheckCircle2 size={17} className="text-emerald-600 shrink-0 mt-0.5" />
+                          <span>{item}</span>
                         </li>
                       ))}
                     </ul>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                    <p className="font-bold text-slate-900 dark:text-white">Delivery Instructions:</p>
+                    <p>
+                      1. Click Buy Now and complete checkout via Razorpay (UPI, Cards, Netbanking, Wallets).
+                      2. Once signature verification finishes, access opens immediately in your Student Dashboard Library and right on this page.
+                    </p>
                   </div>
                 </div>
               )}
@@ -942,15 +1346,46 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                 />
               )}
             </div>
+
+            {/* Related Products */}
+            {relatedNotes.length > 0 && (
+              <div className="pt-8 border-t border-slate-200 dark:border-slate-800 space-y-5">
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <BookOpen size={18} className="text-primary" /> Related Study Packs
+                </h2>
+                <div className="grid sm:grid-cols-3 gap-4">
+                  {relatedNotes.map((rel) => (
+                    <Link
+                      key={rel.id}
+                      to={`/product/${rel.id}`}
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 hover:border-primary/40 transition-all flex flex-col justify-between"
+                    >
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-400">
+                          {rel.examType}
+                        </p>
+                        <h3 className="font-bold text-sm text-slate-900 dark:text-white line-clamp-2 mt-1">
+                          {rel.title}
+                        </h3>
+                      </div>
+                      <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-100 dark:border-slate-800">
+                        <span className="font-black text-slate-900 dark:text-white tabular-nums">₹{rel.price}</span>
+                        <span className="text-[11px] font-bold text-primary">View →</span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Sidebar: Purchase Card */}
           <aside className="space-y-6">
             <div className="sticky top-24 bg-white dark:bg-slate-900 rounded-3xl p-7 border border-slate-100 dark:border-slate-800 shadow-xl shadow-slate-200/40 dark:shadow-none space-y-6">
               <div className="flex items-center justify-between">
-                <div className="flex flex-col">
+                <div className="flex flex-col tabular-nums">
                   <span className="text-3xl font-bold text-slate-900 dark:text-white">₹{finalPrice}</span>
-                  {(appliedCoupon || product.originalPrice) && (
+                  {(appliedCoupon || (product.originalPrice && product.originalPrice > finalPrice)) && (
                     <span className="text-sm text-slate-400 line-through">
                       ₹{appliedCoupon ? product.price : product.originalPrice}
                     </span>
@@ -963,6 +1398,28 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                 )}
               </div>
 
+              {paymentError && (
+                <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300 space-y-2">
+                  <div className="flex items-start gap-2 font-semibold">
+                    <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                    <span>{paymentError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => initPayment(PaymentMode.RAZORPAY)}
+                    className="inline-flex items-center gap-1 font-bold underline cursor-pointer"
+                  >
+                    <RefreshCw size={12} /> Retry Razorpay Checkout
+                  </button>
+                </div>
+              )}
+
+              {paymentPendingNotice && (
+                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-300 font-medium">
+                  {paymentPendingNotice}
+                </div>
+              )}
+
               {!isPurchased && (
                 <form onSubmit={handleApplyCoupon} className="space-y-1.5">
                   <div className="flex gap-2">
@@ -972,15 +1429,16 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                         type="text"
                         value={couponInput}
                         onChange={(e) => setCouponInput(e.target.value)}
-                        placeholder={`Promo (${settings?.promo_code || 'TOPPER10'})`}
+                        placeholder={settings?.promo_code ? `Promo (${settings.promo_code})` : 'Enter coupon code'}
                         className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono uppercase text-slate-900 dark:text-white focus:outline-none focus:border-primary"
                       />
                     </div>
                     <button
                       type="submit"
-                      className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-slate-800 text-white text-xs font-bold hover:bg-primary transition-colors cursor-pointer"
+                      disabled={validatingCoupon}
+                      className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-slate-800 text-white text-xs font-bold hover:bg-primary transition-colors cursor-pointer disabled:opacity-60"
                     >
-                      Apply
+                      {validatingCoupon ? '...' : 'Apply'}
                     </button>
                   </div>
                   {couponFeedback && (
@@ -997,34 +1455,43 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
 
               <div className="space-y-3">
                 {isPurchased ? (
-                  <button
-                    onClick={handleSecureDownload}
-                    disabled={downloading}
-                    className="w-full premium-button-primary flex items-center justify-center gap-2"
-                  >
-                    {downloading ? (
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <>
-                        <Download size={20} />
-                        Download Full Notes PDF
-                      </>
+                  <div className="space-y-2.5">
+                    <button
+                      onClick={handleSecureDownload}
+                      disabled={downloading}
+                      className="w-full premium-button-primary flex items-center justify-center gap-2"
+                    >
+                      {downloading ? (
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <Download size={20} />
+                          {hasRealPdfAttached ? 'Download Full Notes PDF' : 'Check PDF Download Status'}
+                        </>
+                      )}
+                    </button>
+                    {downloadNotice && (
+                      <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-300">
+                        {downloadNotice}
+                      </div>
                     )}
-                  </button>
+                  </div>
                 ) : (
                   <>
                     {(settings?.enable_razorpay ?? true) && (
                       <div className="space-y-2.5">
                         <button
                           onClick={() => initPayment(PaymentMode.RAZORPAY)}
-                          disabled={processing}
-                          className="w-full premium-button-primary flex items-center justify-center gap-2 group"
+                          disabled={processing || product.isEnabled === false}
+                          className="w-full premium-button-primary flex items-center justify-center gap-2 group disabled:opacity-60"
                         >
                           {processing ? (
                             <div className="flex items-center gap-2">
                               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              <span>Securing Order...</span>
+                              <span>Initiating Razorpay...</span>
                             </div>
+                          ) : product.isEnabled === false ? (
+                            <span>Currently Unavailable</span>
                           ) : (
                             <>
                               <span>Buy Now for ₹{finalPrice}</span>
@@ -1072,15 +1539,14 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                 ))}
               </div>
 
-              {/* Enhanced Value Guarantees */}
               <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-300 font-medium">
                   <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
                     <ShieldCheck size={16} />
                   </div>
                   <div>
-                    <span className="font-bold text-slate-900 dark:text-white block">256-Bit Razorpay Security</span>
-                    <span className="text-[11px] text-slate-400">Zero convenience fee on UPI &amp; Cards</span>
+                    <span className="font-bold text-slate-900 dark:text-white block">HMAC Signature Verified</span>
+                    <span className="text-[11px] text-slate-400">Server-validated Razorpay order creation</span>
                   </div>
                 </div>
 
@@ -1089,42 +1555,19 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                     <FileDown size={16} />
                   </div>
                   <div>
-                    <span className="font-bold text-slate-900 dark:text-white block">Instant PDF + Email Link</span>
-                    <span className="text-[11px] text-slate-400">Immediate download in your Dashboard</span>
+                    <span className="font-bold text-slate-900 dark:text-white block">Instant Library Access</span>
+                    <span className="text-[11px] text-slate-400">
+                      Up to {product.downloadLimit || 5} secure downloads + invoice PDF
+                    </span>
                   </div>
                 </div>
-              </div>
-
-              <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-3 mb-1.5">
-                  <div className="flex -space-x-2">
-                    {['AK', 'PM', 'RS'].map((init, idx) => (
-                      <div
-                        key={init}
-                        className={`w-6 h-6 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[9px] font-bold text-white ${
-                          idx % 2 === 0 ? 'bg-blue-700' : 'bg-emerald-600'
-                        }`}
-                      >
-                        {init}
-                      </div>
-                    ))}
-                  </div>
-                  <span className="text-xs font-bold text-slate-900 dark:text-white">
-                    {product.studentsBought || '850'}+ Aspirants Purchased
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                  Verified topper notes with memory charts, formulas, and high-probability questions.
-                </p>
               </div>
             </div>
           </aside>
         </div>
       </div>
 
-      {/* ===================================================================== */}
-      {/* FULL-SCREEN HANDWRITTEN NOTES PREVIEW ZOOM MODAL                      */}
-      {/* ===================================================================== */}
+      {/* FULL-SCREEN HANDWRITTEN NOTES PREVIEW ZOOM MODAL */}
       <AnimatePresence>
         {zoomModalOpen && (
           <motion.div
@@ -1136,7 +1579,6 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
             aria-modal="true"
             aria-label="Full-screen handwritten notes zoom viewer"
           >
-            {/* Modal Top Toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 bg-slate-900/90 border-b border-slate-800 text-white shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <NotesBazaarLogo variant="mark" size={32} className="shrink-0" />
@@ -1149,7 +1591,6 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                 </div>
               </div>
 
-              {/* Zoom Controls */}
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <button
                   onClick={() => handleZoomStep(-0.5)}
@@ -1215,7 +1656,6 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
               </div>
             </div>
 
-            {/* Interactive Zoom & Pan Canvas */}
             <div
               className={`flex-1 relative overflow-hidden flex items-center justify-center p-4 sm:p-8 select-none ${
                 zoomLevel > 1 ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'
@@ -1234,7 +1674,6 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                 }
               }}
             >
-              {/* Prev Page Arrow */}
               {activePreviewIdx > 0 && (
                 <button
                   onClick={(e) => {
@@ -1250,13 +1689,8 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                 </button>
               )}
 
-              {/* Zoomable Sheet */}
               <motion.div
-                animate={{
-                  scale: zoomLevel,
-                  x: panOffset.x,
-                  y: panOffset.y
-                }}
+                animate={{ scale: zoomLevel, x: panOffset.x, y: panOffset.y }}
                 transition={{ type: 'spring', stiffness: 280, damping: 30 }}
                 className="relative max-h-full max-w-3xl w-full flex items-center justify-center"
               >
@@ -1270,7 +1704,6 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                 />
               </motion.div>
 
-              {/* Lock card inside Zoom Modal if viewing locked Page 2+ */}
               {isModalPageLocked && (
                 <div className="absolute inset-0 z-20 flex items-center justify-center p-6 pointer-events-auto">
                   <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl border border-slate-200 dark:border-slate-700">
@@ -1281,7 +1714,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                       Page {activePreviewIdx + 1} is Locked
                     </h4>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
-                      Purchase this notes pack to inspect all {previewImagesList.length}+ pages in high resolution and download the PDF.
+                      Purchase this study pack to inspect all pages and download the PDF.
                     </p>
                     <button
                       onClick={() => {
@@ -1290,13 +1723,12 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                       }}
                       className="w-full premium-button-primary py-3.5"
                     >
-                      Unlock Full Notes (₹{product.price})
+                      Unlock Full Notes (₹{finalPrice})
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* Next Page Arrow */}
               {activePreviewIdx < previewImagesList.length - 1 && (
                 <button
                   onClick={(e) => {
@@ -1313,10 +1745,9 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
               )}
             </div>
 
-            {/* Bottom Page Selector & Action Bar */}
             <div className="px-4 sm:px-6 py-3 bg-slate-900/95 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4 text-white shrink-0">
               <div className="flex items-center gap-2 overflow-x-auto">
-                {previewImagesList.map((thumb, idx) => (
+                {previewImagesList.map((_, idx) => (
                   <button
                     key={idx}
                     onClick={() => {
@@ -1355,7 +1786,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                     }}
                     className="px-5 py-2 bg-gradient-to-r from-blue-600 to-emerald-600 text-white rounded-xl text-xs font-bold cursor-pointer"
                   >
-                    Buy &amp; Unlock ₹{product.price}
+                    Buy &amp; Unlock ₹{finalPrice}
                   </button>
                 )}
               </div>
@@ -1364,9 +1795,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
         )}
       </AnimatePresence>
 
-      {/* ===================================================================== */}
-      {/* RAZORPAY ALL-SERVICES CHECKOUT MODAL (UPI / QR / CARDS / NETBANKING)  */}
-      {/* ===================================================================== */}
+      {/* CONTROLLED TEST / DEMO RAZORPAY CHECKOUT MODAL */}
       <AnimatePresence>
         {showDemoPaymentModal && (
           <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
@@ -1376,17 +1805,18 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
               exit={{ opacity: 0, scale: 0.96, y: 12 }}
               className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full max-h-[92dvh] overflow-y-auto shadow-2xl border border-slate-100 dark:border-slate-800 relative"
             >
-              {/* Authentic Blue-Green Header */}
               <div className="bg-gradient-to-r from-blue-800 via-teal-700 to-emerald-700 p-5 text-white flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <NotesBazaarLogo variant="mark" size={40} className="rounded-full shadow-md" />
                   <div>
-                    <h3 className="font-bold text-white text-base leading-tight">NotesBazaar Checkout</h3>
-                    <p className="text-[11px] text-teal-100">Razorpay Trusted Business · 256-bit SSL</p>
+                    <h3 className="font-bold text-white text-base leading-tight">NotesBazaar Test Checkout</h3>
+                    <p className="text-[11px] text-amber-200 font-semibold">
+                      Demo Simulation Mode (Configure RAZORPAY_KEY_SECRET for Live Pay)
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-lg font-black">₹{finalPrice}</span>
+                  <span className="text-lg font-black tabular-nums">₹{finalPrice}</span>
                   <button
                     onClick={() => setShowDemoPaymentModal(false)}
                     className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center text-sm cursor-pointer"
@@ -1398,21 +1828,19 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
               </div>
 
               <div className="p-6 space-y-5">
-                {/* Item Summary */}
                 <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-950 px-4 py-3 rounded-2xl border border-slate-200/70 dark:border-slate-800">
                   <div className="min-w-0 pr-3">
                     <span className="text-[10px] uppercase font-bold text-primary tracking-wider block">
-                      {appliedCoupon ? `Coupon Applied: ${appliedCoupon.code} (-${appliedCoupon.percent}%)` : 'Instant PDF Unlock'}
+                      {appliedCoupon ? `Coupon Applied: ${appliedCoupon.code} (-₹${appliedCoupon.discountAmount})` : 'Test Order Simulation'}
                     </span>
                     <p className="font-bold text-slate-900 dark:text-white text-sm truncate">{product.title}</p>
                   </div>
-                  <span className="font-black text-slate-900 dark:text-white text-base shrink-0">₹{finalPrice}</span>
+                  <span className="font-black text-slate-900 dark:text-white text-base shrink-0 tabular-nums">₹{finalPrice}</span>
                 </div>
 
-                {/* All Professional Payment Services Tabs */}
                 <div>
                   <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">
-                    Select Payment Method
+                    Simulated Payment Rail
                   </p>
                   <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                     {[
@@ -1439,65 +1867,45 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                   </div>
                 </div>
 
-                {/* Method Details Panel */}
                 <div className="bg-slate-50/70 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200/70 dark:border-slate-800 space-y-3">
                   {selectedPayTab === 'upi' && (
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap gap-2">
-                        {['Google Pay', 'PhonePe', 'Paytm', 'BHIM UPI'].map((app) => (
-                          <span
-                            key={app}
-                            className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-bold text-slate-700 dark:text-slate-200"
-                          >
-                            {app}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-slate-500">UPI ID / VPA</label>
-                        <input
-                          type="text"
-                          value={upiIdInput}
-                          onChange={(e) => setUpiIdInput(e.target.value)}
-                          placeholder="yourname@okhdfcbank"
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-700"
-                        />
-                      </div>
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-bold text-slate-500">Test UPI ID</label>
+                      <input
+                        type="text"
+                        value={upiIdInput}
+                        onChange={(e) => setUpiIdInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-white"
+                      />
                     </div>
                   )}
-
                   {selectedPayTab === 'card' && (
-                    <div className="space-y-2.5 text-xs">
-                      <div className="flex items-center justify-between text-slate-500 font-semibold">
-                        <span>Visa · Mastercard · RuPay</span>
-                        <span className="text-emerald-600 font-bold">0% Convenience Fee</span>
-                      </div>
+                    <div className="space-y-2 text-xs">
                       <input
                         type="text"
                         value={cardNumberInput}
                         onChange={(e) => setCardNumberInput(e.target.value)}
-                        aria-label="Card number"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-700"
+                        aria-label="Test card number"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-slate-900 dark:text-white"
                       />
                       <div className="grid grid-cols-2 gap-2.5">
                         <input
                           type="text"
                           value={cardExpiryInput}
                           onChange={(e) => setCardExpiryInput(e.target.value)}
-                          aria-label="Card expiry"
-                          className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-700"
+                          aria-label="Expiry"
+                          className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-slate-900 dark:text-white"
                         />
                         <input
                           type="text"
                           value={cardCvvInput}
                           onChange={(e) => setCardCvvInput(e.target.value)}
-                          aria-label="Card CVV"
-                          className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-700"
+                          aria-label="CVV"
+                          className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-slate-900 dark:text-white"
                         />
                       </div>
                     </div>
                   )}
-
                   {selectedPayTab === 'netbanking' && (
                     <div className="grid grid-cols-2 gap-2">
                       {['HDFC Bank', 'SBI Netbanking', 'ICICI Bank', 'Axis Bank'].map((bank) => (
@@ -1516,7 +1924,6 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                       ))}
                     </div>
                   )}
-
                   {selectedPayTab === 'wallet' && (
                     <div className="grid grid-cols-2 gap-2">
                       {['PhonePe Wallet', 'Amazon Pay', 'Paytm Wallet', 'Mobikwik Wallet'].map((w) => (
@@ -1535,7 +1942,6 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                       ))}
                     </div>
                   )}
-
                   {selectedPayTab === 'emi' && (
                     <div className="grid grid-cols-2 gap-2">
                       {['Simpl / LazyPay PayLater', 'ICICI Cardless EMI', 'HDFC 3-Month EMI', 'Kotak PayLater'].map((opt) => (
@@ -1556,27 +1962,26 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
                   )}
                 </div>
 
-                <button
-                  onClick={executeDemoPayment}
-                  disabled={demoSimulating}
-                  className="w-full py-4 bg-gradient-to-r from-blue-700 via-teal-600 to-emerald-600 text-white rounded-xl font-bold text-sm shadow-xl shadow-teal-600/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75"
-                >
-                  {demoSimulating ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>Verifying Payment &amp; Delivering Access...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Pay ₹{finalPrice} &amp; Unlock Now</span>
-                      <ChevronRight size={18} />
-                    </>
-                  )}
-                </button>
-
-                <p className="text-center text-[11px] text-slate-400">
-                  Secured by Razorpay Checkout · Instant PDF link sent to {user?.email || 'your email'}
-                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDemoPaymentModal(false);
+                      setPaymentError('Simulated bank decline triggered. Click Retry to test recovery flow.');
+                    }}
+                    className="py-3.5 rounded-xl border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 font-bold text-xs hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
+                  >
+                    Simulate Decline
+                  </button>
+                  <button
+                    type="button"
+                    onClick={executeDemoPayment}
+                    disabled={demoSimulating}
+                    className="py-3.5 bg-gradient-to-r from-blue-700 via-teal-600 to-emerald-600 text-white rounded-xl font-bold text-xs shadow-lg flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-75"
+                  >
+                    {demoSimulating ? 'Verifying...' : `Simulate Pay ₹${finalPrice}`}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
@@ -1586,13 +1991,13 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
       {/* Mobile Sticky Buy Bar */}
       {!isPurchased && (
         <div className="md:hidden fixed bottom-16 left-0 right-0 z-40 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 p-4 flex items-center justify-between shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-          <div className="flex flex-col">
+          <div className="flex flex-col tabular-nums">
             <span className="text-lg font-bold text-slate-900 dark:text-white">₹{finalPrice}</span>
             {product.originalPrice && <span className="text-[10px] text-slate-400 line-through">₹{product.originalPrice}</span>}
           </div>
           <button
             onClick={() => initPayment(PaymentMode.RAZORPAY)}
-            disabled={processing}
+            disabled={processing || product.isEnabled === false}
             className="px-7 py-3 bg-gradient-to-r from-blue-700 to-emerald-600 text-white rounded-xl font-bold text-sm shadow-lg cursor-pointer"
           >
             {processing ? '...' : 'Buy & Unlock'}

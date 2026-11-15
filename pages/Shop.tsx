@@ -27,8 +27,12 @@ const ProductCard: React.FC<{
   onToggleSave: (id: string) => void;
 }> = ({ note, viewMode, isSaved, onToggleSave }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const safeImages = getSafePreviewImages(note.examType, note.previewImages);
+  const safeImages = getSafePreviewImages(note.examType, note.previewImages, `${note.title} ${note.id}`);
   const displayImage = isHovered && safeImages[1] ? safeImages[1] : safeImages[0];
+  const discountPct =
+    note.originalPrice && note.originalPrice > note.price
+      ? Math.round(((note.originalPrice - note.price) / note.originalPrice) * 100)
+      : 0;
 
   if (viewMode === 'list') {
     return (
@@ -73,14 +77,24 @@ const ProductCard: React.FC<{
         </Link>
 
         <div className="flex-1 flex flex-col w-full">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
             <span className="text-blue-700 dark:text-blue-400 font-bold uppercase tracking-wider">{note.examType}</span>
             <span>·</span>
             <span>{note.category}</span>
-            <span>·</span>
-            <span className="inline-flex items-center gap-1 text-amber-500 font-bold">
-              <Star size={12} fill="currentColor" /> {note.rating || '4.9'}
-            </span>
+            {note.pagesCount && (
+              <>
+                <span>·</span>
+                <span>{note.pagesCount}</span>
+              </>
+            )}
+            {note.rating > 0 && (
+              <>
+                <span>·</span>
+                <span className="inline-flex items-center gap-1 text-amber-500 font-bold">
+                  <Star size={12} fill="currentColor" /> {note.rating}
+                </span>
+              </>
+            )}
           </div>
 
           <Link to={`/product/${note.id}`}>
@@ -94,14 +108,16 @@ const ProductCard: React.FC<{
           </p>
 
           <div className="mt-auto flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-            <div className="flex items-baseline gap-2">
+            <div className="flex items-baseline gap-2 tabular-nums">
               <span className="text-2xl font-black text-slate-900 dark:text-white">₹{note.price}</span>
               {note.originalPrice && (
                 <span className="text-xs text-slate-400 line-through font-semibold">₹{note.originalPrice}</span>
               )}
-              <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold ml-1">
-                Instant PDF + Email Link
-              </span>
+              {discountPct > 0 && (
+                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
+                  {discountPct}% OFF
+                </span>
+              )}
             </div>
 
             <Link
@@ -126,14 +142,20 @@ const ProductCard: React.FC<{
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Single clean corner tag + Save bookmark */}
-      {note.isBestseller && (
+      {discountPct > 0 ? (
+        <div className="absolute top-4 left-4 z-20">
+          <span className="bg-emerald-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-md">
+            {discountPct}% OFF
+          </span>
+        </div>
+      ) : note.isBestseller ? (
         <div className="absolute top-4 left-4 z-20">
           <span className="bg-blue-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-md">
             Bestseller
           </span>
         </div>
-      )}
+      ) : null}
+
       <button
         type="button"
         onClick={(e) => {
@@ -163,7 +185,6 @@ const ProductCard: React.FC<{
           alt={note.title}
         />
 
-        {/* Quick Inspect Overlay */}
         <div
           className={`absolute inset-0 bg-slate-950/35 backdrop-blur-[2px] flex items-center justify-center transition-opacity duration-300 ${
             isHovered ? 'opacity-100' : 'opacity-0'
@@ -179,13 +200,17 @@ const ProductCard: React.FC<{
       {/* Content */}
       <div className="p-5 pt-2 flex-1 flex flex-col">
         <div className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">
-          <span>
+          <span className="truncate">
             <strong className="text-blue-700 dark:text-blue-400 uppercase">{note.examType}</strong> · {note.category}
           </span>
-          <span className="inline-flex items-center gap-1 text-amber-500 font-bold shrink-0">
-            <Star size={12} fill="currentColor" />
-            {note.rating || '4.8'}
-          </span>
+          {note.rating > 0 ? (
+            <span className="inline-flex items-center gap-1 text-amber-500 font-bold shrink-0">
+              <Star size={12} fill="currentColor" />
+              {note.rating}
+            </span>
+          ) : (
+            <span className="text-[10px] font-bold text-slate-400 shrink-0">{note.pagesCount || 'PDF'}</span>
+          )}
         </div>
 
         <Link to={`/product/${note.id}`}>
@@ -199,7 +224,7 @@ const ProductCard: React.FC<{
         </p>
 
         <div className="mt-auto pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
-          <div className="flex flex-col">
+          <div className="flex flex-col tabular-nums">
             <div className="flex items-baseline gap-1.5">
               <span className="text-xl font-black text-slate-900 dark:text-white">₹{note.price}</span>
               {note.originalPrice && (
@@ -224,6 +249,8 @@ const ProductCard: React.FC<{
   );
 };
 
+const PAGE_SIZE = 9;
+
 const Shop: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialExam = (searchParams.get('exam') as ExamType) || ExamType.ALL;
@@ -233,7 +260,8 @@ const Shop: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [sortBy, setSortBy] = useState<'featured' | 'price_asc' | 'price_desc' | 'rating'>('featured');
+  const [sortBy, setSortBy] = useState<'featured' | 'newest' | 'price_asc' | 'price_desc' | 'rating'>('featured');
+  const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [savedIds, setSavedIds] = useState<string[]>(() => {
     try {
@@ -265,40 +293,45 @@ const Shop: React.FC = () => {
 
   const fetchNotes = async () => {
     try {
-      // 1. Check Google Sheets via deployed AppScript URL first
       try {
         const sheetNotes = await fetchNotesFromGoogleSheets();
         if (sheetNotes && sheetNotes.length > 0) {
-          setNotes(sheetNotes);
+          setNotes(sheetNotes.filter((n) => n.isEnabled !== false && !n.isArchived));
           setLoading(false);
           return;
         }
-      } catch (sErr) {}
+      } catch {}
 
-      // 2. Database fallback
       const productsRef = collection(db, 'products');
       const snapshot = await getDocs(productsRef);
 
       if (!snapshot.empty) {
-        const mappedNotes: Note[] = snapshot.docs.map((doc) => {
-          const item = doc.data();
+        const mappedNotes: Note[] = snapshot.docs.map((docSnap) => {
+          const item = docSnap.data();
           return {
-            id: doc.id,
+            id: docSnap.id,
             title: item.title,
             category: item.category || 'Study Material',
             examType: (item.exam_type || ExamType.SSC) as ExamType,
             description: item.description,
-            price: item.price,
-            originalPrice: item.original_price,
+            price: Number(item.price || 0),
+            originalPrice: item.original_price ? Number(item.original_price) : undefined,
             previewImages: item.preview_images || [],
-            fileUrl: item.file_url,
-            rating: item.rating,
-            reviewsCount: item.reviews_count,
-            isBestseller: item.is_bestseller,
-            studentsBought: item.students_bought
+            fileUrl: item.file_url || '',
+            rating: Number(item.rating || 0),
+            reviewsCount: Number(item.reviews_count || 0),
+            isBestseller: Boolean(item.is_bestseller),
+            studentsBought: item.students_bought,
+            pagesCount: item.pages_count,
+            updatedLabel: item.updated_label,
+            examSuitability: item.exam_suitability,
+            keyTopics: item.key_topics,
+            isEnabled: item.is_enabled !== false,
+            isArchived: Boolean(item.is_archived),
+            createdAt: item.created_at,
           };
         });
-        setNotes(mappedNotes);
+        setNotes(mappedNotes.filter((n) => n.isEnabled !== false && !n.isArchived));
       } else {
         setNotes(BUILTIN_CATALOG_NOTES);
       }
@@ -312,6 +345,7 @@ const Shop: React.FC = () => {
 
   const handleExamChange = (exam: ExamType) => {
     setActiveExam(exam);
+    setVisibleLimit(PAGE_SIZE);
     if (exam === ExamType.ALL) {
       searchParams.delete('exam');
     } else {
@@ -321,20 +355,34 @@ const Shop: React.FC = () => {
   };
 
   const filteredNotes = notes
-    .filter(
-      (n) =>
-        (!showSavedOnly || savedIds.includes(n.id)) &&
-        (activeExam === ExamType.ALL || String(n.examType).toLowerCase() === String(activeExam).toLowerCase()) &&
-        (n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          n.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          n.category.toLowerCase().includes(searchQuery.toLowerCase()))
-    )
+    .filter((n) => {
+      const matchesSaved = !showSavedOnly || savedIds.includes(n.id);
+      const suitMatch = (n.examSuitability || []).some((s) =>
+        s.toLowerCase().includes(String(activeExam).toLowerCase())
+      );
+      const matchesExam =
+        activeExam === ExamType.ALL ||
+        String(n.examType).toLowerCase() === String(activeExam).toLowerCase() ||
+        suitMatch;
+      const q = searchQuery.toLowerCase();
+      const matchesQuery =
+        n.title.toLowerCase().includes(q) ||
+        n.description.toLowerCase().includes(q) ||
+        n.category.toLowerCase().includes(q) ||
+        (n.keyTopics || []).some((t) => t.toLowerCase().includes(q));
+      return matchesSaved && matchesExam && matchesQuery;
+    })
     .sort((a, b) => {
       if (sortBy === 'price_asc') return a.price - b.price;
       if (sortBy === 'price_desc') return b.price - a.price;
-      if (sortBy === 'rating') return (b.rating || 4.8) - (a.rating || 4.8);
+      if (sortBy === 'newest') {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      }
+      if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
       return Number(b.isBestseller) - Number(a.isBestseller);
     });
+
+  const pagedNotes = filteredNotes.slice(0, visibleLimit);
 
   return (
     <div className="min-h-screen">
@@ -348,10 +396,10 @@ const Shop: React.FC = () => {
                 Handwritten Study Library
               </div>
               <h1 className="text-3xl md:text-5xl font-bold text-slate-900 dark:text-white font-heading tracking-tight">
-                {activeExam === ExamType.ALL ? 'All Handwritten Notes' : `${activeExam} Study Material`}
+                {activeExam === ExamType.ALL ? 'All Digital Study Notes' : `${activeExam} Study Material`}
               </h1>
               <p className="text-slate-500 dark:text-slate-400 text-base max-w-xl font-medium leading-relaxed">
-                Preview crisp sample pages with full-screen zoom before unlocking lifetime PDF access.
+                Preview crisp sample pages with full-screen zoom before unlocking digital PDF access.
               </p>
             </div>
 
@@ -389,16 +437,18 @@ const Shop: React.FC = () => {
         <div className="flex flex-col lg:flex-row gap-12">
           {/* Sidebar Filters */}
           <aside className="w-full lg:w-72 space-y-8 shrink-0">
-            {/* Search */}
             <div className="space-y-3">
               <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">Search Notes</h3>
               <div className="relative group">
                 <input
                   type="text"
-                  placeholder="Subject, topic, exam..."
+                  placeholder="Static GK, Maths, Polity..."
                   className="premium-input pl-12"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setVisibleLimit(PAGE_SIZE);
+                  }}
                 />
                 <Search
                   className="w-5 h-5 text-slate-400 absolute left-4 top-4 group-focus-within:text-primary transition-colors"
@@ -407,14 +457,13 @@ const Shop: React.FC = () => {
               </div>
             </div>
 
-            {/* Categories */}
             <div className="space-y-3">
               <div className="flex items-center justify-between px-1">
                 <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Exam Category</h3>
                 <Filter size={14} className="text-slate-400" strokeWidth={1.5} />
               </div>
               <div className="flex flex-wrap lg:flex-col gap-2.5">
-                {[ExamType.ALL, ExamType.SSC, ExamType.BANKING, ExamType.UPSC, ExamType.RAILWAYS].map((exam) => (
+                {[ExamType.ALL, ExamType.SSC, ExamType.BANKING, ExamType.RAILWAYS, ExamType.STATE_PSC, ExamType.UPSC].map((exam) => (
                   <button
                     key={exam}
                     onClick={() => handleExamChange(exam)}
@@ -445,7 +494,6 @@ const Shop: React.FC = () => {
               </button>
             </div>
 
-            {/* Quick Support */}
             <div className="bg-slate-900 dark:bg-slate-900/95 border border-slate-800 p-7 rounded-3xl text-white shadow-xl relative overflow-hidden">
               <h4 className="font-bold text-base mb-2 flex items-center gap-2.5">
                 <div className="w-8 h-8 bg-primary/20 text-teal-400 rounded-lg flex items-center justify-center">
@@ -454,7 +502,7 @@ const Shop: React.FC = () => {
                 Need Study Guidance?
               </h4>
               <p className="text-xs text-slate-400 mb-5 leading-relaxed font-medium">
-                Unsure which study pack suits your exam target? Message our academic support team.
+                Unsure which study pack suits your exam target? Reach our customer support desk.
               </p>
               <Link
                 to="/contact"
@@ -488,7 +536,8 @@ const Shop: React.FC = () => {
               <>
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-8 px-1">
                   <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
-                    Showing <span className="text-slate-900 dark:text-white font-bold">{filteredNotes.length}</span> study notes
+                    Showing <span className="text-slate-900 dark:text-white font-bold">{pagedNotes.length}</span> of{' '}
+                    <span className="font-bold">{filteredNotes.length}</span> study notes
                   </p>
                   <div className="flex items-center gap-3">
                     <select
@@ -497,14 +546,15 @@ const Shop: React.FC = () => {
                       onChange={(e) => setSortBy(e.target.value as any)}
                       className="text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
                     >
-                      <option value="featured">Sort: Featured Topper Picks</option>
+                      <option value="featured">Sort: Featured &amp; Popular</option>
+                      <option value="newest">Sort: Newest Added</option>
                       <option value="price_asc">Price: Low to High</option>
                       <option value="price_desc">Price: High to Low</option>
                       <option value="rating">Highest Rated</option>
                     </select>
                     <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-widest">
                       <TrendingUp size={14} />
-                      Topper Verified
+                      Exam Oriented
                     </div>
                   </div>
                 </div>
@@ -514,8 +564,8 @@ const Shop: React.FC = () => {
                     layout
                     className={viewMode === 'grid' ? 'grid sm:grid-cols-2 xl:grid-cols-3 gap-7' : 'flex flex-col gap-5'}
                   >
-                    {filteredNotes.length > 0 ? (
-                      filteredNotes.map((note) => (
+                    {pagedNotes.length > 0 ? (
+                      pagedNotes.map((note) => (
                         <ProductCard
                           key={note.id}
                           note={note}
@@ -551,6 +601,18 @@ const Shop: React.FC = () => {
                     )}
                   </motion.div>
                 </AnimatePresence>
+
+                {filteredNotes.length > pagedNotes.length && (
+                  <div className="mt-10 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleLimit((prev) => prev + PAGE_SIZE)}
+                      className="px-6 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs font-bold text-slate-800 dark:text-slate-200 hover:border-primary transition-colors cursor-pointer"
+                    >
+                      Load More Study Notes ({filteredNotes.length - pagedNotes.length} remaining)
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>

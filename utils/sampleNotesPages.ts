@@ -401,11 +401,105 @@ const RAILWAYS_PAGES = [
   )
 ];
 
-export const getSamplePagesByExam = (examType?: ExamType | string): string[] => {
-  const key = String(examType || '').toUpperCase();
-  if (key.includes('UPSC')) return UPSC_PAGES;
-  if (key.includes('BANK')) return BANKING_PAGES;
-  if (key.includes('RAIL')) return RAILWAYS_PAGES;
+const STATIC_GK_PAGES = [
+  createRuledPaperBase(
+    1,
+    'STATIC GK 2026 • SSC / RAILWAYS / PSC',
+    'Indian Classical &amp; Folk Dances + UNESCO Heritage',
+    `
+      <text x="118" y="154" font-family="Georgia, serif" font-size="20" font-weight="700" fill="#1E3A8A" font-style="italic">
+        1. Eight Classical Dances of India (Sangeet Natak Akademi)
+      </text>
+      <rect x="118" y="176" width="634" height="250" rx="12" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1.5"/>
+      <text x="140" y="212" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#1E3A8A">
+        • Bharatanatyam (Tamil Nadu) — Oldest classical dance • Rukmini Devi Arundale
+      </text>
+      <text x="140" y="246" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#0F766E">
+        • Kathak (North India / UP) — Birju Maharaj, Sitara Devi, Lacchu Maharaj
+      </text>
+      <text x="140" y="280" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#1D4ED8">
+        • Kuchipudi (Andhra Pradesh) — Yamini Krishnamurthy, Radha &amp; Raja Reddy
+      </text>
+      <text x="140" y="314" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#B45309">
+        • Odissi (Odisha) — Kelucharan Mohapatra, Sonal Mansingh (Tribhanga pose)
+      </text>
+      <text x="140" y="348" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#047857">
+        • Manipuri (Manipur) &amp; Sattriya (Assam — Srimanta Sankardev, 15th Century)
+      </text>
+      <text x="140" y="382" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#334155">
+        • Kathakali &amp; Mohiniyattam (Kerala) — Kalamandalam Krishnan Nair, Sunanda Nair
+      </text>
+
+      <text x="118" y="468" font-family="Georgia, serif" font-size="20" font-weight="700" fill="#0F766E" font-style="italic">
+        2. Major National Parks, Ramsar Sites &amp; Dams
+      </text>
+      <rect x="118" y="490" width="634" height="245" rx="12" fill="#ECFDF5" stroke="#A7F3D0" stroke-width="1.5"/>
+      <text x="140" y="528" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="#065F46">
+        • Jim Corbett (UK, 1936) — India's 1st National Park (Old name: Hailey NP)
+      </text>
+      <text x="140" y="564" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="#065F46">
+        • Hemis NP (Ladakh) — Largest NP | South Button (Andaman) — Smallest
+      </text>
+      <text x="140" y="600" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="#1E3A8A">
+        • Keibul Lamjao (Manipur) — Only Floating National Park (Sangai Deer)
+      </text>
+      <text x="140" y="636" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="#B45309">
+        • Highest Dam: Tehri (Bhagirathi, UK) | Longest: Hirakud (Mahanadi, Odisha)
+      </text>
+      <text x="140" y="672" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="#334155">
+        • Highest Waterfall: Kunchikal (Varahi River, Karnataka — 455m)
+      </text>
+    `,
+    '#1D4ED8'
+  ),
+  createRuledPaperBase(
+    2,
+    'STATIC GK 2026 • UPDATED DEC 2025',
+    'Nobel Prizes, Sports Trophies &amp; Government Schemes',
+    `
+      <text x="118" y="156" font-family="Georgia, serif" font-size="20" font-weight="700" fill="#B45309" font-style="italic">
+        Nobel Prize Structure &amp; Indian Laureates Memory Matrix
+      </text>
+      <rect x="118" y="180" width="634" height="210" rx="12" fill="#FEFCE8" stroke="#FDE047"/>
+      <text x="140" y="218" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#92400E">
+        • 1913 Literature: Rabindranath Tagore (Gitanjali — 1st Asian)
+      </text>
+      <text x="140" y="254" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#1E3A8A">
+        • 1930 Physics: C.V. Raman (Raman Effect — National Science Day: Feb 28)
+      </text>
+      <text x="140" y="290" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#047857">
+        • 1979 Peace: Mother Teresa | 1998 Economics: Amartya Sen
+      </text>
+      <text x="140" y="326" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#334155">
+        • 2014 Peace: Kailash Satyarthi (Bachpan Bachao Andolan)
+      </text>
+
+      <text x="118" y="432" font-family="Georgia, serif" font-size="20" font-weight="700" fill="#1E3A8A" font-style="italic">
+        Sports Cups, Trophies &amp; Important International Days
+      </text>
+      <rect x="118" y="456" width="634" height="190" rx="12" fill="#FFFFFF" stroke="#CBD5E1"/>
+      <text x="140" y="494" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="#1D4ED8">
+        • Hockey: Aga Khan Cup, Beighton Cup, Sultan Azlan Shah, Dhyan Chand Trophy
+      </text>
+      <text x="140" y="532" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="#059669">
+        • Badminton: Thomas Cup (Men), Uber Cup (Women), Sudirman Cup (Mixed)
+      </text>
+      <text x="140" y="570" font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="#B45309">
+        • Football: Durand Cup (Oldest in Asia), Santosh Trophy, Rovers Cup
+      </text>
+    `,
+    '#059669'
+  )
+];
+
+export const getSamplePagesByExam = (examType?: ExamType | string, titleOrId?: string): string[] => {
+  const hint = `${String(examType || '')} ${String(titleOrId || '')}`.toUpperCase();
+  if (hint.includes('STATIC') || hint.includes('GK') || hint.includes('PSC') || hint.includes('GENERAL')) {
+    return STATIC_GK_PAGES;
+  }
+  if (hint.includes('UPSC')) return UPSC_PAGES;
+  if (hint.includes('BANK')) return BANKING_PAGES;
+  if (hint.includes('RAIL')) return RAILWAYS_PAGES;
   return SSC_PAGES;
 };
 
@@ -415,7 +509,8 @@ export const getSamplePagesByExam = (examType?: ExamType | string): string[] => 
  */
 export const getSafePreviewImages = (
   examType?: ExamType | string,
-  existingImages?: string[]
+  existingImages?: string[],
+  titleOrId?: string
 ): string[] => {
   const validCustom = (existingImages || []).filter(
     (img) => typeof img === 'string' && img.trim().length > 0 && !img.includes('picsum.photos')
@@ -423,5 +518,5 @@ export const getSafePreviewImages = (
   if (validCustom.length > 0) {
     return validCustom;
   }
-  return getSamplePagesByExam(examType);
+  return getSamplePagesByExam(examType, titleOrId);
 };

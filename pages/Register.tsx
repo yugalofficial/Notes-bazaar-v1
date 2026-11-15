@@ -3,24 +3,33 @@ import { Link } from 'react-router-dom';
 import {
   User as UserIcon,
   Mail,
+  Lock,
   ArrowRight,
   ShieldCheck,
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { signInWithPopup } from 'firebase/auth';
+import {
+  signInWithPopup,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  sendEmailVerification
+} from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import { NotesBazaarLogo } from '../components/NotesBazaarLogo';
 import { loginWithAppScriptEmail } from '../utils/appScriptService';
 
 const Register: React.FC = () => {
+  const [authTab, setAuthTab] = useState<'password' | 'sheets'>('password');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
 
   const handleGoogleSignUp = async () => {
     setGoogleLoading(true);
@@ -35,12 +44,60 @@ const Register: React.FC = () => {
         }, 900);
       }
     } catch (err: any) {
-      setError(err?.message || 'Google sign-up cancelled. You can register with your email below.');
+      setError(err?.message || 'Google sign-up cancelled.');
       setGoogleLoading(false);
     }
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const handlePasswordRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = name.trim();
+    const cleanEmail = email.trim();
+    if (!cleanName || cleanName.length < 2) {
+      setError('Please enter your full name.');
+      return;
+    }
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setError('Please provide a valid email address.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+      if (cred.user) {
+        await updateProfile(cred.user, { displayName: cleanName });
+        try {
+          await sendEmailVerification(cred.user);
+          setVerificationSent(true);
+        } catch {
+          // Non-fatal if verification email throttled
+        }
+        setSuccess(true);
+        setTimeout(() => {
+          window.location.hash = '#/dashboard';
+        }, 1200);
+      }
+    } catch (err: any) {
+      if (err?.code === 'auth/operation-not-allowed') {
+        setError(
+          'Email/Password registration is not yet enabled in Firebase Console (Authentication → Sign-in method → Email/Password). Use "Sign Up with Google" or "Quick Email / Sheets" below.'
+        );
+      } else if (err?.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Try signing in instead.');
+      } else {
+        setError(err?.message || 'Registration failed.');
+      }
+      setLoading(false);
+    }
+  };
+
+  const handleQuickSheetsRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !email.includes('@')) {
       setError('Please provide a valid student email address.');
@@ -81,9 +138,14 @@ const Register: React.FC = () => {
             <CheckCircle2 size={36} />
           </div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 font-heading">Welcome to NotesBazaar!</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6 leading-relaxed">
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-4 leading-relaxed">
             Your student profile for <span className="font-bold text-slate-900 dark:text-white">{email}</span> is ready and synced to your dashboard.
           </p>
+          {verificationSent && (
+            <p className="text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl p-3 mb-5 border border-emerald-200 dark:border-emerald-900">
+              We have sent a verification link to your inbox. Please confirm your email address.
+            </p>
+          )}
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-950 rounded-xl text-xs font-bold text-teal-700 dark:text-teal-400 border border-slate-100 dark:border-slate-800">
             <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
             <span>Opening your student dashboard...</span>
@@ -103,7 +165,7 @@ const Register: React.FC = () => {
       >
         <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-blue-700 via-teal-600 to-emerald-500" />
 
-        <div className="text-center mb-7 relative z-10">
+        <div className="text-center mb-6 relative z-10">
           <Link to="/" className="inline-flex items-center justify-center mb-4 group">
             <NotesBazaarLogo
               variant="seal"
@@ -111,11 +173,11 @@ const Register: React.FC = () => {
               className="drop-shadow-md group-hover:scale-105 transition-transform duration-300"
             />
           </Link>
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight font-heading">
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight font-heading">
             Create Student Account
-          </h2>
+          </h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1.5 font-medium">
-            Join 50,000+ exam aspirants · Instant PDF Library
+            Your Study Partner for Instant Exam PDFs &amp; Revision
           </p>
         </div>
 
@@ -123,9 +185,9 @@ const Register: React.FC = () => {
           <motion.div
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-5 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 px-4 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 border border-rose-100 dark:border-rose-900"
+            className="mb-5 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 px-4 py-3 rounded-2xl text-xs font-semibold flex items-start gap-2 border border-rose-100 dark:border-rose-900"
           >
-            <AlertCircle size={16} className="shrink-0" />
+            <AlertCircle size={16} className="shrink-0 mt-0.5" />
             <span>{error}</span>
           </motion.div>
         )}
@@ -150,14 +212,36 @@ const Register: React.FC = () => {
             <span>{googleLoading ? 'Creating Account...' : 'Sign Up with Google'}</span>
           </button>
 
-          <div className="flex items-center gap-3">
-            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">or Quick Email</span>
-            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+          <div className="grid grid-cols-2 p-1 bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200/70 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => { setAuthTab('password'); setError(null); }}
+              className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                authTab === 'password'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              Email &amp; Password
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAuthTab('sheets'); setError(null); }}
+              className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                authTab === 'sheets'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              Quick Email / Sheets
+            </button>
           </div>
         </div>
 
-        <form className="space-y-4 relative z-10" onSubmit={handleRegister}>
+        <form
+          className="space-y-4 relative z-10"
+          onSubmit={authTab === 'password' ? handlePasswordRegister : handleQuickSheetsRegister}
+        >
           <div className="space-y-1.5">
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider ml-1">
               Your Full Name
@@ -168,10 +252,10 @@ const Register: React.FC = () => {
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-2xl px-5 py-4 pl-12 focus:outline-none focus:ring-4 focus:ring-teal-500/10 focus:border-teal-600 transition-all text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
+                className="w-full bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-2xl px-5 py-3.5 pl-11 focus:outline-none focus:ring-4 focus:ring-teal-500/10 focus:border-teal-600 transition-all text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
                 placeholder="e.g. Rahul Sharma"
               />
-              <UserIcon className="absolute left-4 top-4 text-slate-400" size={18} />
+              <UserIcon className="absolute left-3.5 top-3.5 text-slate-400" size={18} />
             </div>
           </div>
 
@@ -185,12 +269,32 @@ const Register: React.FC = () => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-2xl px-5 py-4 pl-12 focus:outline-none focus:ring-4 focus:ring-teal-500/10 focus:border-teal-600 transition-all text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
+                className="w-full bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-2xl px-5 py-3.5 pl-11 focus:outline-none focus:ring-4 focus:ring-teal-500/10 focus:border-teal-600 transition-all text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
                 placeholder="aspirant@exam.com"
               />
-              <Mail className="absolute left-4 top-4 text-slate-400" size={18} />
+              <Mail className="absolute left-3.5 top-3.5 text-slate-400" size={18} />
             </div>
           </div>
+
+          {authTab === 'password' && (
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider ml-1">
+                Create Password
+              </label>
+              <div className="relative">
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-2xl px-5 py-3.5 pl-11 focus:outline-none focus:ring-4 focus:ring-teal-500/10 focus:border-teal-600 transition-all text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
+                  placeholder="Min. 6 characters"
+                />
+                <Lock className="absolute left-3.5 top-3.5 text-slate-400" size={18} />
+              </div>
+            </div>
+          )}
 
           <div className="pt-1">
             <label className="flex items-start gap-2.5 cursor-pointer">
@@ -217,7 +321,7 @@ const Register: React.FC = () => {
           <button
             type="submit"
             disabled={loading || googleLoading}
-            className="w-full py-4 bg-gradient-to-r from-blue-700 via-teal-600 to-emerald-600 hover:opacity-95 text-white rounded-2xl font-bold text-sm shadow-xl shadow-teal-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75 mt-2"
+            className="w-full py-3.5 bg-gradient-to-r from-blue-700 via-teal-600 to-emerald-600 hover:opacity-95 text-white rounded-2xl font-bold text-sm shadow-xl shadow-teal-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75 mt-2"
           >
             {loading ? (
               <div className="flex items-center gap-2">
@@ -226,14 +330,14 @@ const Register: React.FC = () => {
               </div>
             ) : (
               <>
-                <span>Complete Free Registration</span>
+                <span>Create Free Account</span>
                 <ArrowRight size={18} />
               </>
             )}
           </button>
         </form>
 
-        <div className="mt-7 text-center space-y-3 pt-6 border-t border-slate-100 dark:border-slate-800">
+        <div className="mt-6 text-center space-y-2.5 pt-5 border-t border-slate-100 dark:border-slate-800">
           <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
             Already have an account?{' '}
             <Link to="/login" className="text-teal-700 dark:text-teal-400 font-bold hover:underline">

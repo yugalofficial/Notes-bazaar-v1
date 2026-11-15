@@ -2,13 +2,15 @@
   "entities": {
     "User": {
       "title": "User Profile",
-      "description": "User account information and role configurations stored in Firestore",
+      "description": "User account information, entitlement tracking, and status stored in Firestore",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "email": { "type": "string", "maxLength": 160 },
         "displayName": { "type": "string", "maxLength": 100 },
         "role": { "type": "string", "enum": ["user", "admin"] },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "emailVerified": { "type": "boolean" },
         "purchasedNotes": { "type": "array" },
         "membershipType": { "type": "string", "enum": ["none", "basic", "pro", "elite"] },
         "membershipExpiry": { "type": "number" },
@@ -19,21 +21,28 @@
       "required": ["uid", "email", "displayName", "role", "purchasedNotes"]
     },
     "Product": {
-      "title": "Product (Note)",
-      "description": "A curated, premium handwritten notes set",
+      "title": "Product (Digital Note)",
+      "description": "Digital PDF study material with pricing, syllabus topics, and availability metadata",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "title": { "type": "string", "maxLength": 200 },
         "category": { "type": "string", "maxLength": 100 },
         "exam_type": { "type": "string", "maxLength": 40 },
-        "description": { "type": "string", "maxLength": 2500 },
+        "description": { "type": "string", "maxLength": 3500 },
         "price": { "type": "number" },
         "original_price": { "type": "number" },
         "preview_images": { "type": "array" },
-        "file_url": { "type": "string", "maxLength": 2048 },
+        "file_url": { "type": "string", "maxLength": 450000 },
         "file_name": { "type": "string", "maxLength": 200 },
         "file_size_label": { "type": "string", "maxLength": 40 },
+        "pages_count": { "type": "string", "maxLength": 64 },
+        "updated_label": { "type": "string", "maxLength": 100 },
+        "exam_suitability": { "type": "array" },
+        "key_topics": { "type": "array" },
+        "is_enabled": { "type": "boolean" },
+        "is_archived": { "type": "boolean" },
+        "download_limit": { "type": "number" },
         "rating": { "type": "number" },
         "reviews_count": { "type": "number" },
         "is_bestseller": { "type": "boolean" },
@@ -44,27 +53,106 @@
       "required": ["title", "category", "exam_type", "price", "file_url"]
     },
     "Order": {
-      "title": "Order Transaction",
-      "description": "Records representing a successful or pending purchase of study material",
+      "title": "Order & Payment Transaction",
+      "description": "Verified order and payment ledger including coupon discounts, Razorpay IDs, and download counters",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "uid": { "type": "string", "maxLength": 128 },
         "user_email": { "type": "string", "maxLength": 160 },
         "amount": { "type": "number" },
-        "status": { "type": "string", "enum": ["paid", "pending", "failed"] },
+        "subtotal": { "type": "number" },
+        "discount_amount": { "type": "number" },
+        "coupon_code": { "type": "string", "maxLength": 40 },
+        "status": { "type": "string", "enum": ["paid", "pending", "failed", "refunded"] },
         "product_id": { "type": "string", "maxLength": 128 },
         "product_title": { "type": "string", "maxLength": 200 },
         "payment_id": { "type": "string", "maxLength": 128 },
+        "razorpay_order_id": { "type": "string", "maxLength": 128 },
+        "razorpay_signature": { "type": "string", "maxLength": 256 },
         "provider": { "type": "string", "maxLength": 40 },
         "payment_method": { "type": "string", "maxLength": 80 },
-        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+        "verified_by_server": { "type": "boolean" },
+        "download_count": { "type": "number" },
+        "refund_id": { "type": "string", "maxLength": 128 },
+        "refund_reason": { "type": "string", "maxLength": 300 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updated_at": { "type": "string", "maxLength": 64 }
       },
       "required": ["user_email", "amount", "status", "product_id", "payment_id", "created_at"]
     },
+    "Coupon": {
+      "title": "Discount Coupon",
+      "description": "Promotional discount codes with expiry, usage limits, and product scoping",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "code": { "type": "string", "maxLength": 40 },
+        "discountType": { "type": "string", "enum": ["percent", "fixed"] },
+        "discountValue": { "type": "number" },
+        "minOrderAmount": { "type": "number" },
+        "maxDiscount": { "type": "number" },
+        "applicableProductId": { "type": "string", "maxLength": 128 },
+        "usageLimit": { "type": "number" },
+        "usedCount": { "type": "number" },
+        "expiresAt": { "type": "string", "maxLength": 64 },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["code", "discountType", "discountValue", "usedCount", "isActive", "createdAt"]
+    },
+    "Campaign": {
+      "title": "Promotional Campaign",
+      "description": "Time-bound promotional campaigns with real backend expiry timestamps",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "subtitle": { "type": "string", "maxLength": 300 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "offerPrice": { "type": "number" },
+        "couponCode": { "type": "string", "maxLength": 40 },
+        "startsAt": { "type": "string", "maxLength": 64 },
+        "expiresAt": { "type": "string", "maxLength": 64 },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["title", "expiresAt", "isActive", "createdAt"]
+    },
+    "Entitlement": {
+      "title": "User Product Entitlement",
+      "description": "Per-user digital product ownership record and download allowance",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 160 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "orderId": { "type": "string", "maxLength": 128 },
+        "downloadsUsed": { "type": "number" },
+        "downloadLimit": { "type": "number" },
+        "grantedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["uid", "productId", "orderId", "downloadsUsed", "grantedAt"]
+    },
+    "DownloadLog": {
+      "title": "PDF Download Log",
+      "description": "Audit log of authenticated PDF note downloads",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 160 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productTitle": { "type": "string", "maxLength": 200 },
+        "orderId": { "type": "string", "maxLength": 128 },
+        "downloadedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["uid", "userEmail", "productId", "downloadedAt"]
+    },
     "Review": {
       "title": "Product Review",
-      "description": "User ratings and written reviews for study guides",
+      "description": "Verified customer ratings and written reviews for study guides",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
@@ -74,22 +162,29 @@
         "productId": { "type": "string", "maxLength": 128 },
         "rating": { "type": "number" },
         "comment": { "type": "string", "maxLength": 1000 },
+        "verifiedPurchase": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time", "maxLength": 64 },
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["uid", "userName", "productId", "rating", "comment", "createdAt"]
     },
     "Contact": {
-      "title": "Contact Submission",
-      "description": "Inquiries sent by prospective and existing users",
+      "title": "Support Ticket / Contact Submission",
+      "description": "Customer inquiries and payment/download support tickets",
       "type": "object",
       "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "uid": { "type": "string", "maxLength": 128 },
         "name": { "type": "string", "maxLength": 100 },
         "email": { "type": "string", "maxLength": 160 },
         "subject": { "type": "string", "maxLength": 200 },
         "message": { "type": "string", "maxLength": 2500 },
-        "status": { "type": "string", "enum": ["open", "resolved"] },
-        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+        "orderId": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "enum": ["payment", "download", "account", "general"] },
+        "status": { "type": "string", "enum": ["open", "in_progress", "resolved"] },
+        "adminReply": { "type": "string", "maxLength": 1500 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updated_at": { "type": "string", "maxLength": 64 }
       },
       "required": ["name", "email", "subject", "message", "created_at"]
     },
@@ -123,8 +218,17 @@
         "emailjs_public_key": { "type": "string", "maxLength": 120 },
         "hero_title": { "type": "string", "maxLength": 200 },
         "hero_subtitle": { "type": "string", "maxLength": 500 },
+        "brand_tagline": { "type": "string", "maxLength": 120 },
+        "announcement_enabled": { "type": "boolean" },
+        "announcement_text": { "type": "string", "maxLength": 300 },
+        "campaign_title": { "type": "string", "maxLength": 160 },
+        "campaign_expires_at": { "type": "string", "maxLength": 64 },
+        "campaign_product_id": { "type": "string", "maxLength": 128 },
+        "promo_code": { "type": "string", "maxLength": 40 },
+        "promo_discount_percent": { "type": "number" },
         "contact_email": { "type": "string", "maxLength": 160 },
         "contact_phone": { "type": "string", "maxLength": 40 },
+        "whatsapp_number": { "type": "string", "maxLength": 40 },
         "office_address": { "type": "string", "maxLength": 240 }
       }
     },
@@ -136,7 +240,7 @@
         "id": { "type": "string", "maxLength": 128 },
         "name": { "type": "string", "maxLength": 200 },
         "kind": { "type": "string", "enum": ["pdf", "preview_image"] },
-        "url": { "type": "string", "maxLength": 400000 },
+        "url": { "type": "string", "maxLength": 450000 },
         "mimeType": { "type": "string", "maxLength": 100 },
         "sizeBytes": { "type": "number" },
         "linkedProductId": { "type": "string", "maxLength": 128 },
@@ -158,41 +262,18 @@
     }
   },
   "firestore": {
-    "users/{userId}": {
-      "schema": "User",
-      "description": "User profiles indexed by Firebase Auth UID"
-    },
-    "products/{productId}": {
-      "schema": "Product",
-      "description": "Curated handwritten notes catalog"
-    },
-    "orders/{orderId}": {
-      "schema": "Order",
-      "description": "Order records for purchased books and notes"
-    },
-    "reviews/{reviewId}": {
-      "schema": "Review",
-      "description": "User product ratings and comments"
-    },
-    "contacts/{contactId}": {
-      "schema": "Contact",
-      "description": "Contact message submissions"
-    },
-    "activity_logs/{logId}": {
-      "schema": "ActivityLog",
-      "description": "Immutable compliance and security audit logs"
-    },
-    "settings/{settingId}": {
-      "schema": "SiteSettings",
-      "description": "Public storefront config (main) and Admin-only security vault hash (admin_security)"
-    },
-    "managed_files/{fileId}": {
-      "schema": "ManagedFile",
-      "description": "Admin-managed PDF documents and preview image assets"
-    },
-    "admins/{adminId}": {
-      "schema": "AdminRole",
-      "description": "Verified administrator UID registry"
-    }
+    "users/{userId}": { "schema": "User", "description": "User profiles indexed by Firebase Auth UID" },
+    "products/{productId}": { "schema": "Product", "description": "Digital notes catalog" },
+    "orders/{orderId}": { "schema": "Order", "description": "Order records and transaction verification metadata" },
+    "coupons/{couponId}": { "schema": "Coupon", "description": "Active discount coupons indexed by uppercase code" },
+    "campaigns/{campaignId}": { "schema": "Campaign", "description": "Time-limited promotional campaigns" },
+    "entitlements/{entitlementId}": { "schema": "Entitlement", "description": "Verified customer PDF entitlements" },
+    "downloads/{downloadId}": { "schema": "DownloadLog", "description": "Authenticated PDF download history" },
+    "reviews/{reviewId}": { "schema": "Review", "description": "Verified customer ratings and comments" },
+    "contacts/{contactId}": { "schema": "Contact", "description": "Support tickets and customer inquiries" },
+    "activity_logs/{logId}": { "schema": "ActivityLog", "description": "Immutable security and payment audit logs" },
+    "settings/{settingId}": { "schema": "SiteSettings", "description": "Public config (main) and Admin-only hash (admin_security)" },
+    "managed_files/{fileId}": { "schema": "ManagedFile", "description": "Admin-managed PDF documents and preview image assets" },
+    "admins/{adminId}": { "schema": "AdminRole", "description": "Verified administrator UID registry" }
   }
 }

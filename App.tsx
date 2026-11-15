@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy, Component, ErrorInfo, ReactNode } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { auth, db } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -6,26 +6,31 @@ import { doc, getDoc, setDoc, collection, getDocs, query, where } from 'firebase
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import PurchaseToast from './components/PurchaseToast';
+import { CampaignCountdownBanner, WhatsAppSupportButton } from './components/CampaignSupport';
 import { NotesBazaarLogo } from './components/NotesBazaarLogo';
 import Home from './pages/Home';
-import Shop from './pages/Shop';
-import ProductDetail from './pages/ProductDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import Dashboard from './pages/Dashboard';
-import AdminDashboard from './pages/AdminDashboard';
-import AdminLogin from './pages/AdminLogin';
-import Membership from './pages/Membership';
-import ThankYou from './pages/ThankYou';
-import About from './pages/About';
-import Contact from './pages/Contact';
-import Privacy from './pages/Privacy';
-import Terms from './pages/Terms';
-import { User, ExamType, SiteSettings } from './types';
+import { User, ExamType } from './types';
 import { BUILTIN_CATALOG_NOTES, getSessionUser, saveSessionUser } from './utils/appScriptService';
 import { isFounderEmail } from './utils/security';
+import { applySeoMetadata, getRouteSeo } from './utils/seo';
 import { motion, useScroll, useSpring, AnimatePresence } from 'motion/react';
-import { ArrowUp, X, Sparkles } from 'lucide-react';
+import { ArrowUp } from 'lucide-react';
+
+// Code-split secondary & portal routes for fast initial load
+const Shop = lazy(() => import('./pages/Shop'));
+const ProductDetail = lazy(() => import('./pages/ProductDetail'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const AdminLogin = lazy(() => import('./pages/AdminLogin'));
+const Membership = lazy(() => import('./pages/Membership'));
+const ThankYou = lazy(() => import('./pages/ThankYou'));
+const About = lazy(() => import('./pages/About'));
+const Contact = lazy(() => import('./pages/Contact'));
+const Privacy = lazy(() => import('./pages/Privacy'));
+const Terms = lazy(() => import('./pages/Terms'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -79,10 +84,11 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
-const ScrollToTop = () => {
+const ScrollToTopAndSeo = () => {
   const { pathname } = useLocation();
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    applySeoMetadata(getRouteSeo(pathname));
   }, [pathname]);
   return null;
 };
@@ -122,45 +128,34 @@ const ScrollProgressAndTopBtn: React.FC = () => {
   );
 };
 
+const RouteFallbackSpinner = () => (
+  <div className="min-h-[55vh] flex items-center justify-center">
+    <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+  </div>
+);
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
-  const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
-  const [announcementDismissed, setAnnouncementDismissed] = useState(false);
   const mountedRef = useRef(true);
-
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const snap = await getDoc(doc(db, 'settings', 'main'));
-        if (snap.exists() && mountedRef.current) {
-          setSiteSettings(snap.data() as SiteSettings);
-        }
-      } catch (e) {}
-    };
-    loadSettings();
-  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
 
-    // 1. Check session user first for fast initial render
     try {
       const sessionUser = getSessionUser();
       if (sessionUser && mountedRef.current) {
         setUser(sessionUser);
         setAuthChecking(false);
       }
-    } catch (sErr) {}
+    } catch {}
 
-    // 2. Safety timeout: ensure routes stay responsive
     const failsafeTimer = setTimeout(() => {
       if (mountedRef.current) {
         setAuthChecking(false);
       }
     }, 1000);
 
-    // 3. Firebase Auth Listener
     let unsubscribe = () => {};
     try {
       unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -168,11 +163,7 @@ const App: React.FC = () => {
           await mapFirebaseUserToAppUser(firebaseUser);
         } else if (mountedRef.current) {
           const su = getSessionUser();
-          if (su) {
-            setUser(su);
-          } else {
-            setUser(null);
-          }
+          setUser(su || null);
           setAuthChecking(false);
         }
       });
@@ -203,18 +194,22 @@ const App: React.FC = () => {
             price: item.price,
             original_price: item.originalPrice || item.price * 2,
             preview_images: item.previewImages || [],
-            file_url: item.fileUrl || '#',
-            rating: item.rating || 4.9,
-            reviews_count: item.reviewsCount || 120,
+            file_url: item.fileUrl || '',
+            pages_count: item.pagesCount || '',
+            updated_label: item.updatedLabel || '',
+            exam_suitability: item.examSuitability || [],
+            key_topics: item.keyTopics || [],
+            is_enabled: item.isEnabled !== false,
+            download_limit: item.downloadLimit || 10,
+            rating: item.rating || 0,
+            reviews_count: item.reviewsCount || 0,
             is_bestseller: Boolean(item.isBestseller),
-            students_bought: item.studentsBought || '500',
+            students_bought: item.studentsBought || '0',
             created_at: new Date().toISOString(),
           });
         }
       }
-    } catch (e) {
-      // Non-blocking: admin can also trigger live sync inside AdminDashboard
-    }
+    } catch {}
   };
 
   const mapFirebaseUserToAppUser = async (fbUser: any) => {
@@ -223,7 +218,6 @@ const App: React.FC = () => {
       const userDoc = await getDoc(userDocRef);
       const userData = userDoc.exists() ? userDoc.data() : {};
 
-      // Fetch purchased notes from live Firestore 'orders'
       let purchasedIds: string[] = Array.isArray(userData.purchasedNotes) ? userData.purchasedNotes : [];
       try {
         const ordersRef = collection(db, 'orders');
@@ -234,9 +228,7 @@ const App: React.FC = () => {
           .map((d) => d.data().product_id)
           .filter(Boolean);
         purchasedIds = Array.from(new Set([...purchasedIds, ...orderProductIds]));
-      } catch (e) {
-        // Order lookup fallback silently handled via local session
-      }
+      } catch {}
 
       const founder = isFounderEmail(fbUser.email);
       const role: 'admin' | 'user' = founder || userData.role === 'admin' ? 'admin' : 'user';
@@ -246,13 +238,14 @@ const App: React.FC = () => {
         email: fbUser.email || '',
         displayName: userData.displayName || fbUser.displayName || fbUser.email?.split('@')[0] || 'Aspirant',
         role,
+        status: userData.status || 'active',
+        emailVerified: Boolean(fbUser.emailVerified),
         purchasedNotes: purchasedIds,
         membershipType: userData.membershipType || 'none',
         membershipExpiry: userData.membershipExpiry,
         referralCode: userData.referralCode || `NB-${fbUser.uid.substring(0, 6).toUpperCase()}`,
       };
 
-      // Create compliant Firestore user document if missing (strictly includes uid & purchasedNotes)
       if (!userDoc.exists()) {
         try {
           await setDoc(userDocRef, {
@@ -260,6 +253,8 @@ const App: React.FC = () => {
             email: appUser.email,
             displayName: appUser.displayName,
             role: founder ? 'admin' : 'user',
+            status: 'active',
+            emailVerified: appUser.emailVerified,
             purchasedNotes: appUser.purchasedNotes,
             membershipType: appUser.membershipType,
             referralCode: appUser.referralCode,
@@ -281,7 +276,7 @@ const App: React.FC = () => {
             },
             { merge: true }
           );
-        } catch (e) {}
+        } catch {}
         seedInitialDataForFounder();
       }
 
@@ -299,70 +294,58 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <HashRouter>
-        <ScrollToTop />
+        <ScrollToTopAndSeo />
         <ScrollProgressAndTopBtn />
         <div className="flex flex-col min-h-screen">
-          {siteSettings?.announcement_enabled && siteSettings?.announcement_text && !announcementDismissed && (
-            <div className="bg-gradient-to-r from-blue-800 via-teal-700 to-emerald-700 text-white text-xs font-bold px-4 py-2 flex items-center justify-center gap-3 relative z-50">
-              <Sparkles size={13} className="shrink-0 text-amber-300" />
-              <span className="truncate">{siteSettings.announcement_text}</span>
-              <button
-                onClick={() => setAnnouncementDismissed(true)}
-                aria-label="Dismiss announcement"
-                className="text-white/75 hover:text-white cursor-pointer shrink-0"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          )}
+          <CampaignCountdownBanner />
           <Navbar user={user} />
           <main className="flex-grow pb-20 md:pb-0">
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/shop" element={<Shop />} />
-              <Route path="/membership" element={<Membership />} />
-              <Route path="/product/:id" element={<ProductDetail user={user} />} />
-              <Route path="/thank-you" element={<ThankYou />} />
-              <Route path="/about" element={<About />} />
-              <Route path="/contact" element={<Contact />} />
-              <Route path="/privacy" element={<Privacy />} />
-              <Route path="/terms" element={<Terms />} />
+            <Suspense fallback={<RouteFallbackSpinner />}>
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/shop" element={<Shop />} />
+                <Route path="/membership" element={<Membership />} />
+                <Route path="/product/:id" element={<ProductDetail user={user} />} />
+                <Route path="/thank-you" element={<ThankYou />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/contact" element={<Contact />} />
+                <Route path="/privacy" element={<Privacy />} />
+                <Route path="/terms" element={<Terms />} />
 
-              <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Login />} />
-              <Route path="/register" element={user ? <Navigate to="/dashboard" /> : <Register />} />
-              <Route path="/admin-login" element={<AdminLogin user={user} />} />
+                <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Login />} />
+                <Route path="/register" element={user ? <Navigate to="/dashboard" /> : <Register />} />
+                <Route path="/admin-login" element={<AdminLogin user={user} />} />
 
-              <Route
-                path="/dashboard"
-                element={
-                  authChecking ? (
-                    <div className="min-h-[50vh] flex items-center justify-center">
-                      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  ) : user ? (
-                    <Dashboard user={user} />
-                  ) : (
-                    <Navigate to="/login" />
-                  )
-                }
-              />
-              <Route
-                path="/admin/*"
-                element={
-                  authChecking ? (
-                    <div className="min-h-[50vh] flex items-center justify-center">
-                      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  ) : user?.role === 'admin' ? (
-                    <AdminDashboard user={user} />
-                  ) : (
-                    <Navigate to="/admin-login" />
-                  )
-                }
-              />
-            </Routes>
+                <Route
+                  path="/dashboard"
+                  element={
+                    authChecking ? (
+                      <RouteFallbackSpinner />
+                    ) : user ? (
+                      <Dashboard user={user} />
+                    ) : (
+                      <Navigate to="/login" />
+                    )
+                  }
+                />
+                <Route
+                  path="/admin/*"
+                  element={
+                    authChecking ? (
+                      <RouteFallbackSpinner />
+                    ) : user?.role === 'admin' ? (
+                      <AdminDashboard user={user} />
+                    ) : (
+                      <Navigate to="/admin-login" />
+                    )
+                  }
+                />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
           </main>
           <PurchaseToast />
+          <WhatsAppSupportButton />
           <Footer />
         </div>
       </HashRouter>

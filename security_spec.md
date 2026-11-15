@@ -37,6 +37,15 @@ This document details the zero-trust security model, strict invariants, "Dirty D
 - **Managed Files (`/managed_files/{fileId}`)**:
   - Admin-only storage metadata registry for PDFs and preview assets.
 
+- **Coupons (`/coupons/{couponId}`)**:
+  - Single-doc `get` allowed by exact uppercase coupon code ID for checkout validation; `list`, `create`, `update`, `delete` restricted strictly to Admin.
+
+- **Campaigns (`/campaigns/{campaignId}`)**:
+  - Publicly readable for live countdown banner; writes strictly Admin-only.
+
+- **Entitlements & Downloads (`/entitlements/{id}`, `/downloads/{id}`)**:
+  - Strictly scoped to `uid == request.auth.uid` or Admin. Prevents unauthorized cross-user access and enforces download counter bounds.
+
 - **Activity Logs (`/activity_logs/{logId}`)**:
   - `create`: authenticated user logging real action with matching `uid`.
   - `get`, `list`: Admin only.

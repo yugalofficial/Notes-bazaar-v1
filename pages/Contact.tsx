@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Mail, Phone, MapPin, Send, HelpCircle, CheckCircle2, AlertCircle } from 'lucide-react';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
 import { SiteSettings } from '../types';
 import { z } from 'zod';
@@ -10,12 +10,21 @@ import { sanitizePlainText } from '../utils/security';
 const contactSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters.').max(100),
   email: z.string().email('Please provide a valid email address.').max(160),
+  category: z.enum(['general', 'payment', 'download', 'account']),
+  orderId: z.string().max(128).optional(),
   subject: z.string().min(2, 'Subject must be at least 2 characters.').max(200),
   message: z.string().min(5, 'Message must be at least 5 characters.').max(2500),
 });
 
 const Contact: React.FC = () => {
-  const [formData, setFormData] = useState({ name: '', email: '', subject: '', message: '' });
+  const [formData, setFormData] = useState({
+    name: auth.currentUser?.displayName || '',
+    email: auth.currentUser?.email || '',
+    category: 'general' as 'general' | 'payment' | 'download' | 'account',
+    orderId: '',
+    subject: '',
+    message: '',
+  });
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -44,6 +53,8 @@ const Contact: React.FC = () => {
     const sanitized = {
       name: sanitizePlainText(formData.name, 100),
       email: formData.email.trim().toLowerCase().slice(0, 160),
+      category: formData.category,
+      orderId: sanitizePlainText(formData.orderId, 128),
       subject: sanitizePlainText(formData.subject, 200),
       message: sanitizePlainText(formData.message, 2500),
     };
@@ -55,11 +66,17 @@ const Contact: React.FC = () => {
     }
 
     setSending(true);
-    const payload = {
-      ...parsed.data,
+    const payload: Record<string, any> = {
+      name: parsed.data.name,
+      email: parsed.data.email,
+      category: parsed.data.category,
+      subject: parsed.data.subject,
+      message: parsed.data.message,
       status: 'open',
       created_at: new Date().toISOString(),
     };
+    if (auth.currentUser?.uid) payload.uid = auth.currentUser.uid;
+    if (parsed.data.orderId) payload.orderId = parsed.data.orderId;
 
     try {
       await addDoc(collection(db, 'contacts'), payload);
@@ -67,15 +84,19 @@ const Contact: React.FC = () => {
       console.warn('Firestore contacts write fell back locally:', err);
     }
 
-    // Mirror locally for instant visibility if offline
     try {
       const key = 'notesbazaar_contact_inquiries';
       const prev = JSON.parse(localStorage.getItem(key) || '[]');
       localStorage.setItem(key, JSON.stringify([{ id: `loc_${Date.now()}`, ...payload }, ...prev.slice(0, 29)]));
-    } catch (storageErr) {}
+    } catch {}
 
     setSent(true);
-    setFormData({ name: '', email: '', subject: '', message: '' });
+    setFormData((prev) => ({
+      ...prev,
+      orderId: '',
+      subject: '',
+      message: '',
+    }));
     setSending(false);
   };
 
@@ -113,13 +134,13 @@ const Contact: React.FC = () => {
             className="space-y-6"
           >
             <span className="px-4 py-2 bg-primary/10 text-primary text-xs font-bold rounded-full uppercase tracking-widest inline-block">
-              Contact Us
+              Contact &amp; Helpdesk
             </span>
             <h1 className="text-3xl sm:text-4xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight leading-tight">
               We&apos;re Here to <span className="premium-gradient-text">Help</span> You Succeed.
             </h1>
             <p className="text-lg text-slate-500 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
-              Have questions about our handwritten notes, Razorpay payments, or instant email delivery? Reach out anytime.
+              Questions about our PDF notes, Razorpay payment verification, or dashboard downloads? Open a support ticket below.
             </p>
           </motion.div>
         </div>
@@ -153,7 +174,7 @@ const Contact: React.FC = () => {
               <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 rounded-full blur-3xl" />
               <h3 className="text-xl font-bold text-white">Frequently Asked Questions</h3>
               <p className="text-slate-400 text-sm leading-relaxed">
-                Instant answers on PDF downloads, UPI/card payments, and email access links.
+                Instant answers on PDF downloads, UPI/card payments, and student library access.
               </p>
               <button
                 type="button"
@@ -167,7 +188,7 @@ const Contact: React.FC = () => {
                   <div>
                     <p className="font-bold text-white">When do I receive my notes?</p>
                     <p className="text-slate-400">
-                      Immediately after Razorpay payment — unlocked in your Dashboard and sent to your email.
+                      Immediately after Razorpay payment verification — unlocked inside your Student Dashboard Library.
                     </p>
                   </div>
                   <div>
@@ -194,16 +215,16 @@ const Contact: React.FC = () => {
                   <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center">
                     <CheckCircle2 size={40} />
                   </div>
-                  <h3 className="text-3xl font-bold text-slate-900 dark:text-white">Message Sent!</h3>
+                  <h3 className="text-3xl font-bold text-slate-900 dark:text-white">Support Ticket Logged!</h3>
                   <p className="text-slate-500 dark:text-slate-400 max-w-md">
-                    Thank you for reaching out. Your inquiry has been logged directly to our support team and we will respond within 24–48 hours.
+                    Thank you for reaching out. Our team reviews every ticket and responds within 24–48 hours.
                   </p>
                   <button onClick={() => setSent(false)} className="premium-button-secondary">
-                    Send Another Message
+                    Submit Another Request
                   </button>
                 </div>
               ) : (
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <form onSubmit={handleSubmit} className="space-y-5">
                   {formError && (
                     <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-2">
                       <AlertCircle size={16} className="shrink-0" />
@@ -211,15 +232,15 @@ const Contact: React.FC = () => {
                     </div>
                   )}
 
-                  <div className="grid md:grid-cols-2 gap-6">
+                  <div className="grid md:grid-cols-2 gap-5">
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1">
-                        Full Name
+                        Full Name *
                       </label>
                       <input
                         required
                         type="text"
-                        placeholder="Rahul Verma"
+                        placeholder="Aspirant Name"
                         className="premium-input"
                         value={formData.name}
                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -227,7 +248,7 @@ const Contact: React.FC = () => {
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1">
-                        Email Address
+                        Email Address *
                       </label>
                       <input
                         required
@@ -239,9 +260,40 @@ const Contact: React.FC = () => {
                       />
                     </div>
                   </div>
+
+                  <div className="grid md:grid-cols-2 gap-5">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1">
+                        Category
+                      </label>
+                      <select
+                        className="premium-input"
+                        value={formData.category}
+                        onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}
+                      >
+                        <option value="general">General Question</option>
+                        <option value="payment">Payment / Razorpay Reconciliation</option>
+                        <option value="download">PDF Download / Access Issue</option>
+                        <option value="account">Account Verification</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1">
+                        Payment / Order ID (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="pay_..."
+                        className="premium-input font-mono"
+                        value={formData.orderId}
+                        onChange={(e) => setFormData({ ...formData, orderId: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1">
-                      Subject
+                      Subject *
                     </label>
                     <input
                       required
@@ -254,18 +306,18 @@ const Contact: React.FC = () => {
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1">
-                      Message
+                      Message *
                     </label>
                     <textarea
                       required
                       placeholder="Your message here..."
-                      className="premium-input min-h-[160px] resize-none"
+                      className="premium-input min-h-[150px] resize-none"
                       value={formData.message}
                       onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                     />
                   </div>
                   <button disabled={sending} type="submit" className="w-full premium-button-primary py-4 text-base">
-                    {sending ? 'Sending Message...' : 'Send Message'}
+                    {sending ? 'Submitting Ticket...' : 'Submit Support Request'}
                     {!sending && <Send size={18} />}
                   </button>
                 </form>

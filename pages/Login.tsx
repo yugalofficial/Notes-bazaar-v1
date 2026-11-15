@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Mail,
+  Lock,
   ArrowRight,
   ShieldCheck,
   Sparkles,
@@ -9,10 +10,16 @@ import {
   Settings2,
   CheckCircle2,
   AlertCircle,
+  KeyRound,
   X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { signInWithPopup } from 'firebase/auth';
+import {
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  sendEmailVerification
+} from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import { NotesBazaarLogo } from '../components/NotesBazaarLogo';
 import {
@@ -23,11 +30,15 @@ import {
 } from '../utils/appScriptService';
 
 const Login: React.FC = () => {
+  const [authTab, setAuthTab] = useState<'password' | 'sheets'>('password');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [resetSending, setResetSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [unverifiedNotice, setUnverifiedNotice] = useState(false);
 
   // AppScript URL Setup Modal
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -47,6 +58,7 @@ const Login: React.FC = () => {
     setGoogleLoading(true);
     setError(null);
     setSuccessMsg(null);
+    setUnverifiedNotice(false);
     try {
       const result = await signInWithPopup(auth, googleProvider);
       if (result.user) {
@@ -57,11 +69,86 @@ const Login: React.FC = () => {
       }
     } catch (err: any) {
       if (err?.code === 'auth/popup-closed-by-user') {
-        setError('Google sign-in popup was closed. Please try again or use Email Login.');
+        setError('Google sign-in popup was closed. Please try again.');
       } else {
-        setError(err?.message || 'Google sign-in could not complete. Try Email Login below.');
+        setError(err?.message || 'Google sign-in could not complete.');
       }
       setGoogleLoading(false);
+    }
+  };
+
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    if (!password || password.length < 6) {
+      setError('Please enter your password (minimum 6 characters).');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSuccessMsg(null);
+    setUnverifiedNotice(false);
+
+    try {
+      const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+      if (cred.user && !cred.user.emailVerified) {
+        setUnverifiedNotice(true);
+        setSuccessMsg('Signed in! Please verify your email inbox to unlock full purchase reviews.');
+      } else {
+        setSuccessMsg(`Welcome back, ${cred.user.displayName || cleanEmail}!`);
+      }
+      setTimeout(() => {
+        window.location.hash = '#/dashboard';
+      }, 650);
+    } catch (err: any) {
+      if (err?.code === 'auth/operation-not-allowed') {
+        setError(
+          'Email/Password sign-in is not yet enabled in Firebase Console (Authentication → Sign-in method → Email/Password). Use "Continue with Google" or "Quick Email / Sheets" below.'
+        );
+      } else if (err?.code === 'auth/invalid-credential' || err?.code === 'auth/wrong-password' || err?.code === 'auth/user-not-found') {
+        setError('Invalid email or password. Please check your credentials or reset your password.');
+      } else {
+        setError(err?.message || 'Unable to sign in right now.');
+      }
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setError('Enter your registered email address first, then click Forgot Password.');
+      return;
+    }
+    setResetSending(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      await sendPasswordResetEmail(auth, cleanEmail);
+      setSuccessMsg(`Password reset email sent to ${cleanEmail}. Check your inbox and spam folder.`);
+    } catch (err: any) {
+      if (err?.code === 'auth/operation-not-allowed') {
+        setError('Enable Email/Password sign-in in Firebase Console to send password reset links.');
+      } else {
+        setError(err?.message || 'Could not send password reset email.');
+      }
+    } finally {
+      setResetSending(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!auth.currentUser) return;
+    try {
+      await sendEmailVerification(auth.currentUser);
+      setSuccessMsg('Verification link re-sent to your inbox.');
+    } catch (err: any) {
+      setError(err?.message || 'Please wait a moment before requesting another verification email.');
     }
   };
 
@@ -118,7 +205,7 @@ const Login: React.FC = () => {
       } else {
         setAutoCreateSuccess('Sheet connection verified! If tabs are not yet created, ensure Web App access is set to Anyone.');
       }
-    } catch (err: any) {
+    } catch {
       setAutoCreateSuccess('Request sent to Google Sheets Web App.');
     } finally {
       setAutoCreating(false);
@@ -136,7 +223,7 @@ const Login: React.FC = () => {
         <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-blue-700 via-teal-600 to-emerald-500" />
 
         {/* Header */}
-        <div className="text-center mb-7 relative z-10">
+        <div className="text-center mb-6 relative z-10">
           <Link to="/" className="inline-flex items-center justify-center mb-4 group">
             <NotesBazaarLogo
               variant="seal"
@@ -144,11 +231,11 @@ const Login: React.FC = () => {
               className="drop-shadow-md group-hover:scale-105 transition-transform duration-300"
             />
           </Link>
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight font-heading">
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight font-heading">
             Student Sign In
-          </h2>
+          </h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1.5 font-medium">
-            Access your purchased handwritten notes &amp; instant PDFs
+            Access your purchased PDFs, invoices &amp; study vault
           </p>
         </div>
 
@@ -157,9 +244,9 @@ const Login: React.FC = () => {
           <motion.div
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-5 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 px-4 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 border border-rose-100 dark:border-rose-900"
+            className="mb-5 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 px-4 py-3 rounded-2xl text-xs font-semibold flex items-start gap-2 border border-rose-100 dark:border-rose-900"
           >
-            <AlertCircle size={16} className="shrink-0" />
+            <AlertCircle size={16} className="shrink-0 mt-0.5" />
             <span>{error}</span>
           </motion.div>
         )}
@@ -168,10 +255,21 @@ const Login: React.FC = () => {
           <motion.div
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-5 bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-200 px-4 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 border border-teal-100 dark:border-teal-900"
+            className="mb-5 bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-200 px-4 py-3 rounded-2xl text-xs font-semibold space-y-2 border border-teal-100 dark:border-teal-900"
           >
-            <CheckCircle2 size={16} className="shrink-0 text-teal-600 dark:text-teal-400" />
-            <span>{successMsg}</span>
+            <div className="flex items-start gap-2">
+              <CheckCircle2 size={16} className="shrink-0 text-teal-600 dark:text-teal-400 mt-0.5" />
+              <span>{successMsg}</span>
+            </div>
+            {unverifiedNotice && (
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                className="text-[11px] font-bold underline text-teal-700 dark:text-teal-300 cursor-pointer"
+              >
+                Resend Verification Email
+              </button>
+            )}
           </motion.div>
         )}
 
@@ -193,60 +291,146 @@ const Login: React.FC = () => {
                 <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z" />
               </svg>
             )}
-            <span>{googleLoading ? 'Connecting Google Account...' : 'Continue with Google (Verified)'}</span>
+            <span>{googleLoading ? 'Connecting Google Account...' : 'Continue with Google'}</span>
           </button>
 
-          <div className="flex items-center gap-3 py-1">
-            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">or Student Email</span>
-            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+          {/* Method Switcher */}
+          <div className="grid grid-cols-2 p-1 bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200/70 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => { setAuthTab('password'); setError(null); }}
+              className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                authTab === 'password'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              Email &amp; Password
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAuthTab('sheets'); setError(null); }}
+              className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                authTab === 'sheets'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              Quick Email / Sheets
+            </button>
           </div>
         </div>
 
-        {/* Email-Only Authentication Form */}
-        <form className="space-y-4 relative z-10 mt-3" onSubmit={handleEmailOnlyLogin}>
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider ml-1">
-              Registered Student Email
-            </label>
-            <div className="relative">
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-2xl px-5 py-4 pl-12 focus:outline-none focus:ring-4 focus:ring-teal-500/10 focus:border-teal-600 transition-all text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
-                placeholder="your.email@example.com"
-              />
-              <Mail className="absolute left-4 top-4 text-slate-400" size={18} />
-            </div>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500 ml-1">
-              Synced with your Google Sheets ledger &amp; Student Vault.
-            </p>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || googleLoading}
-            className="w-full py-4 bg-gradient-to-r from-blue-700 via-teal-600 to-emerald-600 hover:opacity-95 text-white rounded-2xl font-bold text-sm shadow-xl shadow-teal-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75"
-          >
-            {loading ? (
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Verifying Student Access...</span>
+        {authTab === 'password' ? (
+          <form className="space-y-4 relative z-10 mt-4" onSubmit={handlePasswordLogin}>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider ml-1">
+                Email Address
+              </label>
+              <div className="relative">
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-2xl px-5 py-3.5 pl-11 focus:outline-none focus:ring-4 focus:ring-teal-500/10 focus:border-teal-600 transition-all text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
+                  placeholder="your.email@example.com"
+                />
+                <Mail className="absolute left-3.5 top-3.5 text-slate-400" size={18} />
               </div>
-            ) : (
-              <>
-                <span>Continue with Email</span>
-                <ArrowRight size={18} />
-              </>
-            )}
-          </button>
-        </form>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between ml-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={resetSending}
+                  className="text-xs font-bold text-teal-700 dark:text-teal-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <KeyRound size={12} />
+                  <span>{resetSending ? 'Sending...' : 'Forgot password?'}</span>
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-2xl px-5 py-3.5 pl-11 focus:outline-none focus:ring-4 focus:ring-teal-500/10 focus:border-teal-600 transition-all text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
+                  placeholder="••••••••"
+                />
+                <Lock className="absolute left-3.5 top-3.5 text-slate-400" size={18} />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || googleLoading}
+              className="w-full py-3.5 bg-gradient-to-r from-blue-700 via-teal-600 to-emerald-600 hover:opacity-95 text-white rounded-2xl font-bold text-sm shadow-xl shadow-teal-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75"
+            >
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Signing In...</span>
+                </div>
+              ) : (
+                <>
+                  <span>Sign In</span>
+                  <ArrowRight size={18} />
+                </>
+              )}
+            </button>
+          </form>
+        ) : (
+          <form className="space-y-4 relative z-10 mt-4" onSubmit={handleEmailOnlyLogin}>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider ml-1">
+                Registered Student Email
+              </label>
+              <div className="relative">
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-2xl px-5 py-3.5 pl-11 focus:outline-none focus:ring-4 focus:ring-teal-500/10 focus:border-teal-600 transition-all text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
+                  placeholder="your.email@example.com"
+                />
+                <Mail className="absolute left-3.5 top-3.5 text-slate-400" size={18} />
+              </div>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 ml-1">
+                Instant access synced with your Google Sheets ledger.
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || googleLoading}
+              className="w-full py-3.5 bg-gradient-to-r from-blue-700 via-teal-600 to-emerald-600 hover:opacity-95 text-white rounded-2xl font-bold text-sm shadow-xl shadow-teal-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75"
+            >
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Verifying Student Access...</span>
+                </div>
+              ) : (
+                <>
+                  <span>Continue with Email</span>
+                  <ArrowRight size={18} />
+                </>
+              )}
+            </button>
+          </form>
+        )}
 
         {/* Google Apps Script & Sheets Integration Box */}
-        <div className="mt-7 pt-6 border-t border-slate-100 dark:border-slate-800">
-          <div className="bg-slate-50/90 dark:bg-slate-950 rounded-2xl p-4 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-3">
+        <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
+          <div className="bg-slate-50/90 dark:bg-slate-950 rounded-2xl p-3.5 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-xl bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-400 flex items-center justify-center shrink-0">
                 <FileSpreadsheet size={16} />
@@ -271,11 +455,11 @@ const Login: React.FC = () => {
         </div>
 
         {/* Footer info */}
-        <div className="mt-6 text-center space-y-3">
+        <div className="mt-5 text-center space-y-2.5">
           <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
             Need an account?{' '}
             <Link to="/register" className="text-teal-700 dark:text-teal-400 font-bold hover:underline">
-              Instant Register
+              Create Student Account
             </Link>
           </p>
           <div className="flex items-center justify-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-widest">

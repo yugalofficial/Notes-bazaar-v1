@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getLocalOrders } from '../utils/appScriptService';
+import { getLocalOrders, getSessionUser } from '../utils/appScriptService';
 
 interface ToastOrder {
   title: string;
@@ -9,27 +9,33 @@ interface ToastOrder {
   timeLabel: string;
 }
 
+/**
+ * Displays a confirmation notification strictly for the signed-in user's own
+ * recent verified purchase within the last 10 minutes—never fabricated social proof.
+ */
 const PurchaseToast: React.FC = () => {
   const [visible, setVisible] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<ToastOrder | null>(null);
 
   useEffect(() => {
-    const checkRecentOrders = () => {
-      const orders = getLocalOrders();
-      if (!orders || orders.length === 0) return;
-      const latest = orders[0];
-      setCurrentOrder({
-        title: latest.product_title || 'Study Material PDF',
-        method: latest.payment_method || 'Razorpay Verified',
-        timeLabel: new Date(latest.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      });
-      setVisible(true);
-      const hideTimer = setTimeout(() => setVisible(false), 5000);
-      return () => clearTimeout(hideTimer);
-    };
+    const user = getSessionUser();
+    if (!user?.email) return;
 
-    const initTimer = setTimeout(checkRecentOrders, 3500);
-    return () => clearTimeout(initTimer);
+    const orders = getLocalOrders(user.email);
+    if (!orders || orders.length === 0) return;
+
+    const latest = orders[0];
+    const ageMs = Date.now() - new Date(latest.created_at).getTime();
+    if (Number.isNaN(ageMs) || ageMs > 10 * 60 * 1000) return;
+
+    setCurrentOrder({
+      title: latest.product_title || 'Study Material PDF',
+      method: latest.payment_method || 'Razorpay Verified',
+      timeLabel: new Date(latest.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    });
+    setVisible(true);
+    const hideTimer = setTimeout(() => setVisible(false), 5000);
+    return () => clearTimeout(hideTimer);
   }, []);
 
   return (
@@ -46,7 +52,7 @@ const PurchaseToast: React.FC = () => {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-              Recent Unlock: <span className="text-primary">{currentOrder.title}</span>
+              Verified Purchase: <span className="text-primary">{currentOrder.title}</span>
             </p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               {currentOrder.method} · {currentOrder.timeLabel}

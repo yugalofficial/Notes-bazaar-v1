@@ -26,7 +26,8 @@ service cloud.firestore {
     function isEmailVerified() {
       return isSignedIn() && (
         request.auth.token.email_verified == true ||
-        request.auth.token.firebase.sign_in_provider == 'google.com'
+        request.auth.token.firebase.sign_in_provider == 'google.com' ||
+        request.auth.token.firebase.sign_in_provider == 'password'
       );
     }
 
@@ -36,7 +37,8 @@ service cloud.firestore {
 
     // Zero-DB-read bootstrapped founder check (safe for allow list queries)
     function isBootstrappedAdmin() {
-      return isEmailVerified() && (
+      return isSignedIn() &&
+        request.auth.token.email_verified == true && (
         request.auth.token.email == 'yugalna28@gmail.com' ||
         request.auth.token.email == 'yugalofficial63@gmail.com'
       );
@@ -45,7 +47,8 @@ service cloud.firestore {
     // Full Admin check including verified admins collection (for single-doc get/write)
     function isAdmin() {
       return isBootstrappedAdmin() || (
-        isEmailVerified() &&
+        isSignedIn() &&
+        request.auth.token.email_verified == true &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -54,14 +57,15 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'purchasedNotes']) &&
              data.keys().hasOnly([
-               'uid', 'email', 'displayName', 'role', 'purchasedNotes',
-               'membershipType', 'membershipExpiry', 'referralCode',
+               'uid', 'email', 'displayName', 'role', 'status', 'emailVerified',
+               'purchasedNotes', 'membershipType', 'membershipExpiry', 'referralCode',
                'createdAt', 'updatedAt'
              ]) &&
              data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
              data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
              data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
              data.role in ['user', 'admin'] &&
+             (!('status' in data) || data.status in ['active', 'suspended']) &&
              data.purchasedNotes is list && data.purchasedNotes.size() <= 200;
     }
 
@@ -70,37 +74,90 @@ service cloud.firestore {
              data.keys().hasOnly([
                'id', 'title', 'category', 'exam_type', 'description',
                'price', 'original_price', 'preview_images', 'file_url',
-               'file_name', 'file_size_label', 'rating', 'reviews_count',
-               'is_bestseller', 'students_bought', 'created_at', 'updated_at'
+               'file_name', 'file_size_label', 'pages_count', 'updated_label',
+               'exam_suitability', 'key_topics', 'is_enabled', 'is_archived',
+               'download_limit', 'rating', 'reviews_count', 'is_bestseller',
+               'students_bought', 'created_at', 'updated_at'
              ]) &&
              data.title is string && data.title.size() >= 2 && data.title.size() <= 200 &&
              data.category is string && data.category.size() >= 1 && data.category.size() <= 100 &&
              data.exam_type is string && data.exam_type.size() >= 1 && data.exam_type.size() <= 40 &&
              data.price is number && data.price >= 0 && data.price <= 100000 &&
-             data.file_url is string && data.file_url.size() >= 1 && data.file_url.size() <= 2048 &&
-             (!('description' in data) || (data.description is string && data.description.size() <= 2500)) &&
-             (!('preview_images' in data) || (data.preview_images is list && data.preview_images.size() <= 12));
+             data.file_url is string && data.file_url.size() <= 450000 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 3500)) &&
+             (!('preview_images' in data) || (data.preview_images is list && data.preview_images.size() <= 12)) &&
+             (!('exam_suitability' in data) || (data.exam_suitability is list && data.exam_suitability.size() <= 20)) &&
+             (!('key_topics' in data) || (data.key_topics is list && data.key_topics.size() <= 40));
     }
 
     function isValidOrder(data) {
       return data.keys().hasAll(['user_email', 'amount', 'status', 'product_id', 'payment_id', 'created_at']) &&
              data.keys().hasOnly([
-               'id', 'uid', 'user_email', 'amount', 'status', 'product_id',
-               'product_title', 'payment_id', 'provider', 'payment_method', 'created_at'
+               'id', 'uid', 'user_email', 'amount', 'subtotal', 'discount_amount',
+               'coupon_code', 'status', 'product_id', 'product_title', 'payment_id',
+               'razorpay_order_id', 'razorpay_signature', 'provider', 'payment_method',
+               'verified_by_server', 'download_count', 'refund_id', 'refund_reason',
+               'created_at', 'updated_at'
              ]) &&
              data.user_email is string && data.user_email.size() >= 3 && data.user_email.size() <= 160 &&
              data.amount is number && data.amount >= 0 && data.amount <= 100000 &&
-             data.status in ['paid', 'pending', 'failed'] &&
+             data.status in ['paid', 'pending', 'failed', 'refunded'] &&
              data.product_id is string && data.product_id.size() >= 1 && data.product_id.size() <= 128 &&
              data.payment_id is string && data.payment_id.size() >= 2 && data.payment_id.size() <= 128 &&
              data.created_at is string && data.created_at.size() <= 64;
+    }
+
+    function isValidCoupon(data) {
+      return data.keys().hasAll(['code', 'discountType', 'discountValue', 'usedCount', 'isActive', 'createdAt']) &&
+             data.keys().hasOnly([
+               'id', 'code', 'discountType', 'discountValue', 'minOrderAmount',
+               'maxDiscount', 'applicableProductId', 'usageLimit', 'usedCount',
+               'expiresAt', 'isActive', 'createdAt'
+             ]) &&
+             data.code is string && data.code.size() >= 2 && data.code.size() <= 40 &&
+             data.discountType in ['percent', 'fixed'] &&
+             data.discountValue is number && data.discountValue >= 0 && data.discountValue <= 100000 &&
+             data.usedCount is number && data.usedCount >= 0 &&
+             data.isActive is bool &&
+             data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidCampaign(data) {
+      return data.keys().hasAll(['title', 'expiresAt', 'isActive', 'createdAt']) &&
+             data.keys().hasOnly([
+               'id', 'title', 'subtitle', 'productId', 'offerPrice',
+               'couponCode', 'startsAt', 'expiresAt', 'isActive', 'createdAt'
+             ]) &&
+             data.title is string && data.title.size() >= 2 && data.title.size() <= 200 &&
+             data.expiresAt is string && data.expiresAt.size() <= 64 &&
+             data.isActive is bool &&
+             data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidEntitlement(data) {
+      return data.keys().hasAll(['uid', 'productId', 'orderId', 'downloadsUsed', 'grantedAt']) &&
+             data.keys().hasOnly(['id', 'uid', 'userEmail', 'productId', 'orderId', 'downloadsUsed', 'downloadLimit', 'grantedAt']) &&
+             data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.productId is string && data.productId.size() >= 1 && data.productId.size() <= 128 &&
+             data.orderId is string && data.orderId.size() >= 1 && data.orderId.size() <= 128 &&
+             data.downloadsUsed is number && data.downloadsUsed >= 0 &&
+             data.grantedAt is string && data.grantedAt.size() <= 64;
+    }
+
+    function isValidDownloadLog(data) {
+      return data.keys().hasAll(['uid', 'userEmail', 'productId', 'downloadedAt']) &&
+             data.keys().hasOnly(['id', 'uid', 'userEmail', 'productId', 'productTitle', 'orderId', 'downloadedAt']) &&
+             data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.userEmail is string && data.userEmail.size() >= 3 && data.userEmail.size() <= 160 &&
+             data.productId is string && data.productId.size() >= 1 && data.productId.size() <= 128 &&
+             data.downloadedAt is string && data.downloadedAt.size() <= 64;
     }
 
     function isValidReview(data) {
       return data.keys().hasAll(['uid', 'userName', 'productId', 'rating', 'comment', 'createdAt']) &&
              data.keys().hasOnly([
                'id', 'uid', 'userName', 'userEmail', 'productId',
-               'rating', 'comment', 'createdAt', 'updatedAt'
+               'rating', 'comment', 'verifiedPurchase', 'createdAt', 'updatedAt'
              ]) &&
              data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
              data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 100 &&
@@ -112,11 +169,16 @@ service cloud.firestore {
 
     function isValidContact(data) {
       return data.keys().hasAll(['name', 'email', 'subject', 'message', 'created_at']) &&
-             data.keys().hasOnly(['name', 'email', 'subject', 'message', 'status', 'created_at']) &&
+             data.keys().hasOnly([
+               'id', 'uid', 'name', 'email', 'subject', 'message',
+               'orderId', 'category', 'status', 'adminReply', 'created_at', 'updated_at'
+             ]) &&
              data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
              data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
              data.subject is string && data.subject.size() >= 2 && data.subject.size() <= 200 &&
              data.message is string && data.message.size() >= 5 && data.message.size() <= 2500 &&
+             (!('status' in data) || data.status in ['open', 'in_progress', 'resolved']) &&
+             (!('category' in data) || data.category in ['payment', 'download', 'account', 'general']) &&
              data.created_at is string && data.created_at.size() <= 64;
     }
 
@@ -149,6 +211,7 @@ service cloud.firestore {
                     isOwner(userId) &&
                     isValidUser(incoming()) &&
                     incoming().uid == request.auth.uid &&
+                    (!('status' in incoming()) || incoming().status == 'active') &&
                     (incoming().role == 'user' || isBootstrappedAdmin());
       allow update: if isSignedIn() &&
                     isValidId(userId) &&
@@ -158,7 +221,7 @@ service cloud.firestore {
                         incoming().role == existing().role &&
                         incoming().uid == existing().uid &&
                         incoming().diff(existing()).affectedKeys().hasOnly([
-                          'displayName', 'purchasedNotes', 'membershipType',
+                          'displayName', 'emailVerified', 'purchasedNotes', 'membershipType',
                           'membershipExpiry', 'updatedAt'
                         ])
                       )
@@ -181,6 +244,7 @@ service cloud.firestore {
       );
       allow list: if isSignedIn() && (
         resource.data.user_email == request.auth.token.email ||
+        resource.data.uid == request.auth.uid ||
         isBootstrappedAdmin()
       );
       allow create: if isValidId(orderId) &&
@@ -190,8 +254,53 @@ service cloud.firestore {
                       incoming().user_email == request.auth.token.email ||
                       isAdmin()
                     );
-      allow update: if isValidId(orderId) && isAdmin() && isValidOrder(incoming());
+      allow update: if isValidId(orderId) && isValidOrder(incoming()) && (
+        isAdmin() || (
+          isSignedIn() &&
+          (existing().user_email == request.auth.token.email || existing().uid == request.auth.uid) &&
+          incoming().status == existing().status &&
+          incoming().amount == existing().amount &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['download_count', 'updated_at'])
+        )
+      );
       allow delete: if isValidId(orderId) && isAdmin();
+    }
+
+    match /coupons/{couponId} {
+      allow get: if isValidId(couponId);
+      allow list: if isBootstrappedAdmin();
+      allow create, update: if isValidId(couponId) && isAdmin() && isValidCoupon(incoming());
+      allow delete: if isValidId(couponId) && isAdmin();
+    }
+
+    match /campaigns/{campaignId} {
+      allow get: if isValidId(campaignId);
+      allow list: if true;
+      allow create, update: if isValidId(campaignId) && isAdmin() && isValidCampaign(incoming());
+      allow delete: if isValidId(campaignId) && isAdmin();
+    }
+
+    match /entitlements/{entitlementId} {
+      allow get: if isValidId(entitlementId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isValidId(entitlementId) && isSignedIn() && isEmailVerified() && isValidEntitlement(incoming()) && (incoming().uid == request.auth.uid || isAdmin());
+      allow update: if isValidId(entitlementId) && isValidEntitlement(incoming()) && (
+        isAdmin() || (
+          isSignedIn() &&
+          existing().uid == request.auth.uid &&
+          incoming().uid == existing().uid &&
+          incoming().productId == existing().productId &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['downloadsUsed'])
+        )
+      );
+      allow delete: if isValidId(entitlementId) && isAdmin();
+    }
+
+    match /downloads/{downloadId} {
+      allow get: if isValidId(downloadId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isValidId(downloadId) && isSignedIn() && isValidDownloadLog(incoming()) && (incoming().uid == request.auth.uid || isAdmin());
+      allow update, delete: if isValidId(downloadId) && isAdmin();
     }
 
     match /reviews/{reviewId} {
@@ -221,8 +330,11 @@ service cloud.firestore {
     }
 
     match /contacts/{contactId} {
-      allow get: if isValidId(contactId) && isAdmin();
-      allow list: if isBootstrappedAdmin();
+      allow get: if isValidId(contactId) && (
+        isAdmin() ||
+        (isSignedIn() && ('uid' in existing() && existing().uid == request.auth.uid || existing().email == request.auth.token.email))
+      );
+      allow list: if isBootstrappedAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
       allow create: if isValidId(contactId) && isValidContact(incoming());
       allow update: if isValidId(contactId) && isAdmin() && isValidContact(incoming());
       allow delete: if isValidId(contactId) && isAdmin();
@@ -240,7 +352,6 @@ service cloud.firestore {
     }
 
     match /settings/{settingId} {
-      // Only 'main' storefront settings are public; 'admin_security' stays strictly Admin-only!
       allow get: if isValidId(settingId) && (settingId == 'main' || isAdmin());
       allow list: if isBootstrappedAdmin();
       allow create, update, delete: if isValidId(settingId) && isAdmin();

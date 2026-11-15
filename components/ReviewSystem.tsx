@@ -23,40 +23,17 @@ interface ReviewSystemProps {
 
 const getLocalReviewsKey = (productId: string) => `notesbazaar_reviews_${productId}`;
 
-const getSeededFallbackReviews = (productId: string): Review[] => [
-  {
-    id: `seed_${productId}_1`,
-    uid: 'seed_aspirant_1',
-    userName: 'Ananya Sharma',
-    userEmail: '',
-    productId,
-    rating: 5,
-    comment:
-      'Extremely crisp handwriting and the formula shortcut boxes saved me hours during final revision. Totally worth it!',
-    createdAt: new Date(Date.now() - 86400000 * 4).toISOString()
-  },
-  {
-    id: `seed_${productId}_2`,
-    uid: 'seed_aspirant_2',
-    userName: 'Rohit Verma',
-    userEmail: '',
-    productId,
-    rating: 5,
-    comment:
-      'Diagrams and PYQ highlights are super clear even when zoomed in on tablet. Instant PDF delivery worked smoothly.',
-    createdAt: new Date(Date.now() - 86400000 * 9).toISOString()
-  }
-];
-
 const readLocalReviews = (productId: string): Review[] => {
   try {
     const raw = localStorage.getItem(getLocalReviewsKey(productId));
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        return parsed.filter((r: any) => r && !String(r.id || '').startsWith('seed_'));
+      }
     }
   } catch (e) {}
-  return getSeededFallbackReviews(productId);
+  return [];
 };
 
 const writeLocalReviews = (productId: string, list: Review[]) => {
@@ -105,6 +82,7 @@ export const ReviewSystem: React.FC<ReviewSystemProps> = ({
           productId: d.productId,
           rating: d.rating,
           comment: d.comment,
+          verifiedPurchase: d.verifiedPurchase !== false,
           createdAt: d.createdAt
         };
       });
@@ -117,8 +95,7 @@ export const ReviewSystem: React.FC<ReviewSystemProps> = ({
       setReviews(combined);
       triggerParentSync(combined);
     } catch (e) {
-      // Graceful fallback when Firestore permissions are restricted or offline
-      console.warn('Firestore reviews read skipped, using verified local reviews:', e);
+      console.warn('Firestore reviews read fallback to local genuine records:', e);
       setReviews(localReviews);
       triggerParentSync(localReviews);
     } finally {
@@ -127,7 +104,11 @@ export const ReviewSystem: React.FC<ReviewSystemProps> = ({
   };
 
   const triggerParentSync = async (allReviews: Review[]) => {
-    if (!onReviewUpdate || allReviews.length === 0) return;
+    if (!onReviewUpdate) return;
+    if (allReviews.length === 0) {
+      onReviewUpdate(0, 0);
+      return;
+    }
     const sum = allReviews.reduce((acc, r) => acc + r.rating, 0);
     const avg = Number((sum / allReviews.length).toFixed(1));
     onReviewUpdate(avg, allReviews.length);

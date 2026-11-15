@@ -61,7 +61,11 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
-  LogIn
+  LogIn,
+  Tag,
+  RotateCcw,
+  EyeOff as HideIcon,
+  CalendarClock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSafePreviewImages } from '../utils/sampleNotesPages';
@@ -103,6 +107,8 @@ type AdminTab =
   | 'products'
   | 'files'
   | 'orders'
+  | 'customers'
+  | 'coupons'
   | 'inquiries'
   | 'reviews'
   | 'logs'
@@ -145,14 +151,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
   // Core Data States
-  const [stats, setStats] = useState({ revenue: 0, orders: 0, products: 0, students: 0 });
+  const [stats, setStats] = useState({
+    revenue: 0,
+    orders: 0,
+    pendingOrders: 0,
+    refundedOrFailed: 0,
+    totalDiscount: 0,
+    products: 0,
+    students: 0
+  });
   const [salesData, setSalesData] = useState<{ name: string; revenue: number; count: number }[]>([]);
   const [ordersList, setOrdersList] = useState<any[]>([]);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'paid' | 'pending' | 'failed' | 'refunded'>('all');
+  const [refundingOrderId, setRefundingOrderId] = useState<string | null>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [studentsList, setStudentsList] = useState<any[]>([]);
+  const [couponsList, setCouponsList] = useState<any[]>([]);
+  const [loadingCoupons, setLoadingCoupons] = useState(false);
+  const [newCoupon, setNewCoupon] = useState({
+    code: '',
+    discountType: 'percent' as 'percent' | 'fixed',
+    discountValue: 10,
+    minOrderAmount: 0,
+    maxDiscount: 0,
+    applicableProductId: 'ALL',
+    usageLimit: 0,
+    expiresAt: ''
+  });
+  const [savingCoupon, setSavingCoupon] = useState(false);
+
   const [managedFiles, setManagedFiles] = useState<ManagedFileRecord[]>([]);
   const [inquiries, setInquiries] = useState<any[]>([]);
+  const [inquiryStatusFilter, setInquiryStatusFilter] = useState<'all' | 'open' | 'in_progress' | 'resolved'>('all');
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [allReviews, setAllReviews] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -209,14 +241,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
   const [newProduct, setNewProduct] = useState({
     title: '',
     description: '',
-    price: 299,
-    original_price: 999,
+    price: 99,
+    original_price: 699,
     category: 'General Studies',
     exam_type: ExamType.SSC,
     preview_images: [] as string[],
     file_url: '',
     file_name: '',
     file_size_label: '',
+    pages_count: '',
+    updated_label: '',
+    exam_suitability_text: '',
+    key_topics_text: '',
+    download_limit: 10,
+    is_enabled: true,
     is_bestseller: false,
     students_bought: '0'
   });
@@ -288,8 +326,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
 
   // 3. Build 7-Day Real Revenue Chart from live Orders
   const recomputeAnalyticsFromOrders = (orders: any[], productCount?: number, studentCount?: number) => {
-    const paidOrders = orders.filter((o) => o.status !== 'failed');
+    const paidOrders = orders.filter((o) => o.status === 'paid');
+    const pendingOrders = orders.filter((o) => o.status === 'pending');
+    const failedOrRefunded = orders.filter((o) => o.status === 'failed' || o.status === 'refunded');
     const totalRevenue = paidOrders.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const totalDiscount = paidOrders.reduce((acc, curr) => acc + (Number(curr.discount_amount) || 0), 0);
 
     const days: { key: string; name: string; revenue: number; count: number }[] = [];
     for (let i = 6; i >= 0; i--) {
@@ -313,6 +354,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
     setStats((prev) => ({
       revenue: totalRevenue,
       orders: paidOrders.length,
+      pendingOrders: pendingOrders.length,
+      refundedOrFailed: failedOrRefunded.length,
+      totalDiscount,
       products: productCount ?? prev.products,
       students: studentCount ?? prev.students
     }));
@@ -371,7 +415,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
     else if (activeTab === 'logs') fetchLogs();
     else if (activeTab === 'files') fetchManagedFiles();
     else if (activeTab === 'inquiries') fetchInquiries();
-    else if (activeTab === 'orders') fetchStudents();
+    else if (activeTab === 'orders' || activeTab === 'customers') fetchStudents();
+    else if (activeTab === 'coupons') fetchCoupons();
   }, [activeTab, vaultUnlocked]);
 
   const fetchDashboardData = async () => {
@@ -449,6 +494,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
       setInquiries([]);
     } finally {
       setLoadingInquiries(false);
+    }
+  };
+
+  const fetchCoupons = async () => {
+    setLoadingCoupons(true);
+    try {
+      const snap = await getDocs(collection(db, 'coupons'));
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as any[];
+      list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      setCouponsList(list);
+    } catch {
+      setCouponsList([]);
+    } finally {
+      setLoadingCoupons(false);
     }
   };
 
@@ -667,18 +726,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
             price: item.price,
             original_price: item.originalPrice || item.price * 2,
             preview_images: item.previewImages || [],
-            file_url: item.fileUrl || '#',
-            rating: item.rating || 4.9,
-            reviews_count: item.reviewsCount || 120,
+            file_url: item.fileUrl || '',
+            pages_count: item.pagesCount || '',
+            updated_label: item.updatedLabel || '',
+            exam_suitability: item.examSuitability || [],
+            key_topics: item.keyTopics || [],
+            is_enabled: item.isEnabled !== false,
+            download_limit: item.downloadLimit || 10,
+            rating: item.rating || 0,
+            reviews_count: item.reviewsCount || 0,
             is_bestseller: Boolean(item.isBestseller),
-            students_bought: item.studentsBought || '500',
+            students_bought: item.studentsBought || '0',
             created_at: new Date().toISOString()
           },
           { merge: true }
         );
       }
-      await logAdminAction('CATALOG_SEEDED', `Synced ${BUILTIN_CATALOG_NOTES.length} curated study packs to Firestore.`);
-      showToast('success', 'Curated study catalog synced to Live Firestore!');
+      await logAdminAction('CATALOG_SEEDED', `Synced ${BUILTIN_CATALOG_NOTES.length} catalog notes (including Static GK 2026) to Firestore.`);
+      showToast('success', 'Catalog synced to Live Firestore! Attach real PDFs in Inventory.');
       fetchDashboardData();
     } catch (e: any) {
       showToast('error', e?.message || 'Error syncing catalog to Firestore.');
@@ -923,6 +988,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
       file_url: product.file_url || '',
       file_name: product.file_name || '',
       file_size_label: product.file_size_label || '',
+      pages_count: product.pages_count || '',
+      updated_label: product.updated_label || '',
+      exam_suitability_text: Array.isArray(product.exam_suitability) ? product.exam_suitability.join(', ') : '',
+      key_topics_text: Array.isArray(product.key_topics) ? product.key_topics.join('\n') : '',
+      download_limit: Number(product.download_limit) || 10,
+      is_enabled: product.is_enabled !== false,
       is_bestseller: Boolean(product.is_bestseller),
       students_bought: String(product.students_bought || '0')
     });
@@ -935,17 +1006,55 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
     setNewProduct({
       title: '',
       description: '',
-      price: 299,
-      original_price: 999,
+      price: 99,
+      original_price: 699,
       category: 'General Studies',
       exam_type: ExamType.SSC,
       preview_images: [],
       file_url: '',
       file_name: '',
       file_size_label: '',
+      pages_count: '',
+      updated_label: '',
+      exam_suitability_text: '',
+      key_topics_text: '',
+      download_limit: 10,
+      is_enabled: true,
       is_bestseller: false,
       students_bought: '0'
     });
+  };
+
+  const handleToggleProductVisibility = async (product: any) => {
+    if (!auth.currentUser) {
+      showToast('error', 'Connect Google Admin Auth to update product visibility.');
+      return;
+    }
+    const nextEnabled = product.is_enabled === false;
+    try {
+      await setDoc(
+        doc(db, 'products', product.id),
+        {
+          id: product.id,
+          title: product.title,
+          category: product.category,
+          exam_type: product.exam_type,
+          price: Number(product.price) || 0,
+          file_url: product.file_url || '',
+          is_enabled: nextEnabled,
+          updated_at: new Date().toISOString()
+        },
+        { merge: true }
+      );
+      await logAdminAction(
+        nextEnabled ? 'PRODUCT_ENABLED' : 'PRODUCT_DISABLED',
+        `${nextEnabled ? 'Enabled' : 'Hidden'} "${product.title}" in catalog`
+      );
+      showToast('success', `"${product.title}" is now ${nextEnabled ? 'visible in storefront' : 'hidden from storefront'}.`);
+      fetchDashboardData();
+    } catch (e: any) {
+      showToast('error', e?.message || 'Could not update product visibility.');
+    }
   };
 
   const handleAddOrEditProduct = async (e: React.FormEvent) => {
@@ -955,8 +1064,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
       return;
     }
 
-    const cleanFileUrl = (newProduct.file_url || '#').trim();
-    if (!isSafeAssetUrl(cleanFileUrl, true)) {
+    const cleanFileUrl = (newProduct.file_url || '').trim();
+    if (cleanFileUrl && !isSafeAssetUrl(cleanFileUrl, true)) {
       showToast('error', 'Invalid PDF URL protocol. Use HTTPS, Google Drive link, or upload a PDF.');
       return;
     }
@@ -966,15 +1075,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
       .filter((u) => isSafeAssetUrl(u, false))
       .slice(0, 12);
 
+    const examSuitability = newProduct.exam_suitability_text
+      .split(',')
+      .map((s) => sanitizePlainText(s, 60))
+      .filter(Boolean)
+      .slice(0, 20);
+
+    const keyTopics = newProduct.key_topics_text
+      .split('\n')
+      .map((s) => sanitizePlainText(s, 140))
+      .filter(Boolean)
+      .slice(0, 40);
+
     const payload: Record<string, any> = {
       title: sanitizePlainText(newProduct.title, 200),
-      description: sanitizePlainText(newProduct.description, 2500),
+      description: sanitizePlainText(newProduct.description, 3200),
       price: Math.max(0, Number(newProduct.price) || 0),
       original_price: Math.max(0, Number(newProduct.original_price) || 0),
       category: sanitizePlainText(newProduct.category || 'General', 100),
       exam_type: newProduct.exam_type,
       preview_images: cleanPreviews,
       file_url: cleanFileUrl,
+      pages_count: sanitizePlainText(newProduct.pages_count, 40),
+      updated_label: sanitizePlainText(newProduct.updated_label, 80),
+      exam_suitability: examSuitability,
+      key_topics: keyTopics,
+      download_limit: Math.max(1, Number(newProduct.download_limit) || 10),
+      is_enabled: Boolean(newProduct.is_enabled),
       is_bestseller: Boolean(newProduct.is_bestseller),
       students_bought: String(newProduct.students_bought || '0')
     };
@@ -999,7 +1126,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
       } else {
         const docRef = await addDoc(collection(db, 'products'), {
           ...payload,
-          rating: 4.9,
+          rating: 0,
           reviews_count: 0,
           created_at: new Date().toISOString()
         });
@@ -1035,7 +1162,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
     });
   };
 
-  // Student Access Grant / Revoke
+  // Student Access Grant / Revoke & Account Status
   const handleToggleStudentProductAccess = async (student: any, productId: string, currentlyHas: boolean) => {
     if (!auth.currentUser) {
       showToast('error', 'Connect Google Admin Auth to modify student note access.');
@@ -1057,25 +1184,183 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
     }
   };
 
-  // Inquiries Actions
-  const handleResolveInquiry = async (inq: any) => {
+  const handleToggleStudentStatus = async (student: any) => {
+    if (!auth.currentUser) {
+      showToast('error', 'Connect Google Admin Auth first.');
+      return;
+    }
+    const nextStatus = student.status === 'suspended' ? 'active' : 'suspended';
     try {
-      await setDoc(
-        doc(db, 'contacts', inq.id),
-        {
-          name: inq.name,
-          email: inq.email,
-          subject: inq.subject,
-          message: inq.message,
-          created_at: inq.created_at,
-          status: inq.status === 'resolved' ? 'new' : 'resolved'
-        },
-        { merge: true }
-      );
-      showToast('success', 'Inquiry status updated.');
+      await updateDoc(doc(db, 'users', student.id), {
+        status: nextStatus,
+        updatedAt: new Date().toISOString()
+      });
+      await logAdminAction('CUSTOMER_STATUS_UPDATED', `${student.email} status changed to ${nextStatus}`);
+      showToast('success', `${student.email} marked as ${nextStatus}.`);
+      fetchStudents();
+    } catch (e: any) {
+      showToast('error', e?.message || 'Could not update customer status.');
+    }
+  };
+
+  // Order Refund Handler
+  const handleRefundOrder = (order: any) => {
+    setConfirmDialog({
+      title: 'Issue Refund for Order?',
+      message: `Refund ₹${order.amount} for payment ${order.payment_id} (${order.user_email})? Status will update to 'refunded'.`,
+      confirmLabel: 'Process Refund',
+      onConfirm: async () => {
+        setRefundingOrderId(order.id);
+        try {
+          let refundId = `rfnd_admin_${Date.now()}`;
+          try {
+            const resp = await fetch('/api/razorpay/refund', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                paymentId: order.payment_id,
+                amountInr: Number(order.amount),
+                reason: 'Refund issued from NotesBazaar Admin Console'
+              })
+            });
+            const ct = resp.headers.get('content-type') || '';
+            if (ct.includes('application/json')) {
+              const data = await resp.json();
+              if (!resp.ok || !data.success) {
+                throw new Error(data.error || 'Refund API declined request.');
+              }
+              refundId = data.refundId || refundId;
+            }
+          } catch (apiErr: any) {
+            if (apiErr?.message && !apiErr.message.includes('Failed to fetch')) {
+              throw apiErr;
+            }
+          }
+
+          if (order.id && !String(order.id).startsWith('local_')) {
+            await updateDoc(doc(db, 'orders', order.id), {
+              status: 'refunded',
+              refund_id: refundId,
+              refund_reason: 'Admin initiated refund',
+              updated_at: new Date().toISOString()
+            });
+          }
+
+          await logAdminAction('ORDER_REFUNDED', `Refunded order ${order.payment_id} (₹${order.amount}) · ${refundId}`);
+          showToast('success', `Order ${order.payment_id} marked refunded (${refundId}).`);
+        } catch (err: any) {
+          showToast('error', err?.message || 'Refund failed.');
+        } finally {
+          setRefundingOrderId(null);
+        }
+      }
+    });
+  };
+
+  // Coupons CRUD Handlers
+  const handleCreateCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!auth.currentUser) {
+      showToast('error', 'Connect Google Admin Auth to publish coupons.');
+      return;
+    }
+    const cleanCode = newCoupon.code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+    if (cleanCode.length < 2) {
+      showToast('error', 'Coupon code must be at least 2 alphanumeric characters.');
+      return;
+    }
+
+    setSavingCoupon(true);
+    try {
+      const payload: Record<string, any> = {
+        id: cleanCode,
+        code: cleanCode,
+        discountType: newCoupon.discountType,
+        discountValue: Math.max(1, Number(newCoupon.discountValue) || 10),
+        minOrderAmount: Math.max(0, Number(newCoupon.minOrderAmount) || 0),
+        maxDiscount: Math.max(0, Number(newCoupon.maxDiscount) || 0),
+        applicableProductId: newCoupon.applicableProductId || 'ALL',
+        usageLimit: Math.max(0, Number(newCoupon.usageLimit) || 0),
+        usedCount: 0,
+        expiresAt: newCoupon.expiresAt ? new Date(newCoupon.expiresAt).toISOString() : '',
+        isActive: true,
+        createdAt: new Date().toISOString()
+      };
+      await setDoc(doc(db, 'coupons', cleanCode), payload, { merge: true });
+      await logAdminAction('COUPON_CREATED', `Created coupon ${cleanCode} (${payload.discountValue}${payload.discountType === 'percent' ? '%' : ' INR'})`);
+      showToast('success', `Coupon ${cleanCode} created & active!`);
+      setNewCoupon({
+        code: '',
+        discountType: 'percent',
+        discountValue: 10,
+        minOrderAmount: 0,
+        maxDiscount: 0,
+        applicableProductId: 'ALL',
+        usageLimit: 0,
+        expiresAt: ''
+      });
+      fetchCoupons();
+    } catch (err: any) {
+      showToast('error', err?.message || 'Could not save coupon.');
+    } finally {
+      setSavingCoupon(false);
+    }
+  };
+
+  const handleToggleCoupon = async (coupon: any) => {
+    try {
+      await updateDoc(doc(db, 'coupons', coupon.id), {
+        isActive: !coupon.isActive
+      });
+      showToast('success', `Coupon ${coupon.code} ${!coupon.isActive ? 'activated' : 'paused'}.`);
+      fetchCoupons();
+    } catch (e: any) {
+      showToast('error', e?.message || 'Could not toggle coupon.');
+    }
+  };
+
+  const handleDeleteCoupon = (couponId: string) => {
+    setConfirmDialog({
+      title: 'Delete Coupon Code?',
+      message: `Remove coupon "${couponId}" permanently?`,
+      confirmLabel: 'Delete Coupon',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'coupons', couponId));
+          await logAdminAction('COUPON_DELETED', `Deleted coupon ${couponId}`);
+          showToast('success', `Coupon ${couponId} deleted.`);
+          fetchCoupons();
+        } catch (e: any) {
+          showToast('error', e?.message || 'Could not delete coupon.');
+        }
+      }
+    });
+  };
+
+  // Inquiries Actions
+  const handleUpdateInquiry = async (inq: any, nextStatus: 'open' | 'in_progress' | 'resolved') => {
+    try {
+      const reply = (replyDrafts[inq.id] ?? inq.adminReply ?? '').trim();
+      const payload: Record<string, any> = {
+        name: inq.name,
+        email: inq.email,
+        subject: inq.subject,
+        message: inq.message,
+        created_at: inq.created_at,
+        status: nextStatus,
+        updated_at: new Date().toISOString()
+      };
+      if (inq.uid) payload.uid = inq.uid;
+      if (inq.category) payload.category = inq.category;
+      if (inq.orderId) payload.orderId = inq.orderId;
+      if (reply) payload.adminReply = sanitizePlainText(reply, 2000);
+
+      await setDoc(doc(db, 'contacts', inq.id), payload, { merge: true });
+      await logAdminAction('TICKET_UPDATED', `Support ticket ${inq.id} updated to ${nextStatus}`);
+      showToast('success', 'Support ticket updated.');
       fetchInquiries();
     } catch (e: any) {
-      showToast('error', e?.message || 'Could not update inquiry.');
+      showToast('error', e?.message || 'Could not update support ticket.');
     }
   };
 
@@ -1195,17 +1480,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
       l.details?.toLowerCase().includes(logSearchQuery.toLowerCase())
   );
 
-  const filteredOrders = ordersList.filter(
-    (o) =>
+  const filteredOrders = ordersList.filter((o) => {
+    const matchesQuery =
+      !orderSearchQuery ||
       o.user_email?.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
       o.payment_id?.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
-      o.product_title?.toLowerCase().includes(orderSearchQuery.toLowerCase())
-  );
+      o.product_title?.toLowerCase().includes(orderSearchQuery.toLowerCase());
+    const matchesStatus = orderStatusFilter === 'all' || o.status === orderStatusFilter;
+    return matchesQuery && matchesStatus;
+  });
 
   const filteredStudents = studentsList.filter(
     (s) =>
       s.email?.toLowerCase().includes(studentSearchQuery.toLowerCase()) ||
       s.displayName?.toLowerCase().includes(studentSearchQuery.toLowerCase())
+  );
+
+  const filteredInquiries = inquiries.filter(
+    (inq) => inquiryStatusFilter === 'all' || (inq.status || 'open') === inquiryStatusFilter
   );
 
   // =========================================================================
@@ -1443,19 +1735,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
           {(
             [
               { id: 'stats', label: 'Analytics' },
-              { id: 'products', label: `Inventory (${products.length})` },
+              { id: 'products', label: `Products (${products.length})` },
               { id: 'files', label: 'File Vault' },
-              { id: 'orders', label: `Orders & Students` },
-              { id: 'inquiries', label: `Inquiries${pendingInquiriesCount > 0 ? ` (${pendingInquiriesCount})` : ''}` },
-              { id: 'reviews', label: 'Moderation' },
-              { id: 'logs', label: 'Compliance' },
-              { id: 'settings', label: 'System & Security' }
+              { id: 'orders', label: `Orders (${ordersList.length})` },
+              { id: 'customers', label: `Customers (${studentsList.length || stats.students})` },
+              { id: 'coupons', label: 'Coupons & Campaigns' },
+              { id: 'inquiries', label: `Support${pendingInquiriesCount > 0 ? ` (${pendingInquiriesCount})` : ''}` },
+              { id: 'reviews', label: 'Reviews' },
+              { id: 'logs', label: 'Audit Logs' },
+              { id: 'settings', label: 'Settings & Vault' }
             ] as const
           ).map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 activeTab === tab.id
                   ? 'bg-slate-900 dark:bg-primary text-white shadow-md'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -1475,37 +1769,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
               <span className="w-1.5 h-full bg-primary absolute left-0 top-0" />
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Verified Revenue</p>
-              <p className="text-3xl font-bold text-slate-900 dark:text-white">₹{stats.revenue.toLocaleString()}</p>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Verified Paid Revenue</p>
+              <p className="text-3xl font-bold text-slate-900 dark:text-white tabular-nums">₹{stats.revenue.toLocaleString()}</p>
               <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-0.5 rounded-full mt-3 inline-block">
-                Live Firestore + Local Ledger
+                Discounts Applied: ₹{stats.totalDiscount}
               </span>
             </div>
 
             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
               <span className="w-1.5 h-full bg-blue-600 absolute left-0 top-0" />
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Completed Orders</p>
-              <p className="text-3xl font-bold text-slate-900 dark:text-white">{stats.orders}</p>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Paid Orders</p>
+              <p className="text-3xl font-bold text-slate-900 dark:text-white tabular-nums">{stats.orders}</p>
               <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-0.5 rounded-full mt-3 inline-block">
-                Avg Ticket: ₹{stats.orders > 0 ? Math.round(stats.revenue / stats.orders) : 0}
+                Pending: {stats.pendingOrders} · Failed/Ref: {stats.refundedOrFailed}
               </span>
             </div>
 
             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
               <span className="w-1.5 h-full bg-emerald-500 absolute left-0 top-0" />
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Live Study Packs</p>
-              <p className="text-3xl font-bold text-slate-900 dark:text-white">{products.length}</p>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Catalog Products</p>
+              <p className="text-3xl font-bold text-slate-900 dark:text-white tabular-nums">{products.length}</p>
               <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-0.5 rounded-full mt-3 inline-block">
-                Firestore Collection: products
+                Active: {products.filter((p) => p.is_enabled !== false).length}
               </span>
             </div>
 
             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
               <span className="w-1.5 h-full bg-amber-500 absolute left-0 top-0" />
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">Registered Aspirants</p>
-              <p className="text-3xl font-bold text-slate-900 dark:text-white">{stats.students}</p>
+              <p className="text-3xl font-bold text-slate-900 dark:text-white tabular-nums">{stats.students}</p>
               <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-0.5 rounded-full mt-3 inline-block">
-                Verified Accounts
+                Firestore Accounts
               </span>
             </div>
           </div>
@@ -1596,14 +1890,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
-              {products.length === 0 && (
-                <button
-                  onClick={handleSyncCatalogToFirestore}
-                  className="px-4 py-2.5 bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded-xl font-bold flex items-center gap-2 text-xs hover:bg-amber-500/25 transition-all cursor-pointer"
-                >
-                  <Sparkles size={14} /> Sync 4 Starter Notes to Live DB
-                </button>
-              )}
+              <button
+                onClick={handleSyncCatalogToFirestore}
+                className="px-4 py-2.5 bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded-xl font-bold flex items-center gap-2 text-xs hover:bg-amber-500/25 transition-all cursor-pointer"
+              >
+                <Sparkles size={14} /> Sync Catalog (Incl. Static GK 2026)
+              </button>
               <button
                 onClick={() => handleExportCSV(products, 'product_inventory')}
                 className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold flex items-center gap-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm cursor-pointer"
@@ -1627,26 +1919,42 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
               {products.map((product) => (
                 <div
                   key={product.id}
-                  className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col h-full group"
+                  className={`bg-white dark:bg-slate-900 p-5 rounded-3xl border shadow-sm flex flex-col h-full group ${
+                    product.is_enabled === false
+                      ? 'border-amber-300/60 dark:border-amber-800/60 opacity-80'
+                      : 'border-slate-100 dark:border-slate-800'
+                  }`}
                 >
                   <div className="aspect-video bg-slate-50 dark:bg-slate-950 rounded-2xl mb-4 overflow-hidden relative border border-slate-100 dark:border-slate-800">
                     <img
-                      src={getSafePreviewImages(product.exam_type, product.preview_images)[0]}
+                      src={getSafePreviewImages(product.exam_type, product.preview_images, product.title)[0]}
                       className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                       alt={product.title}
                     />
-                    <div className="absolute top-2.5 left-2.5 flex gap-1.5">
+                    <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5">
                       <span
                         className={`px-2 py-0.5 rounded-lg text-[10px] font-bold backdrop-blur-md ${
                           product.file_url && product.file_url !== '#'
                             ? 'bg-emerald-600/90 text-white'
-                            : 'bg-slate-900/75 text-slate-200'
+                            : 'bg-amber-600/90 text-white'
                         }`}
                       >
-                        {product.file_url && product.file_url !== '#' ? 'PDF Attached ✓' : 'Capsule PDF'}
+                        {product.file_url && product.file_url !== '#' ? 'PDF Attached ✓' : 'Awaiting PDF'}
                       </span>
+                      {product.is_enabled === false && (
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-900/90 text-amber-300">
+                          Hidden
+                        </span>
+                      )}
                     </div>
                     <div className="absolute top-2.5 right-2.5 flex gap-1.5">
+                      <button
+                        onClick={() => handleToggleProductVisibility(product)}
+                        className="p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur rounded-lg text-slate-700 dark:text-slate-200 hover:text-amber-600 transition-colors shadow-md cursor-pointer"
+                        title={product.is_enabled === false ? 'Enable in Storefront' : 'Hide from Storefront'}
+                      >
+                        {product.is_enabled === false ? <Eye size={13} /> : <HideIcon size={13} />}
+                      </button>
                       <button
                         onClick={() => handleEditProductInit(product)}
                         className="p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur rounded-lg text-slate-700 dark:text-slate-200 hover:text-primary transition-colors shadow-md cursor-pointer"
@@ -1856,12 +2164,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
 
                       <div className="flex gap-2">
                         <input
-                          required
                           type="text"
                           className="flex-1 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/25 outline-none font-mono"
                           value={newProduct.file_url}
                           onChange={(e) => setNewProduct({ ...newProduct, file_url: e.target.value })}
-                          placeholder="Upload PDF above or paste HTTPS / Google Drive link (use # for built-in PDF)"
+                          placeholder="Upload PDF above or paste HTTPS / Google Drive link (leave empty if uploading later)"
                         />
                         {newProduct.file_url && newProduct.file_url !== '#' && (
                           <a
@@ -1976,6 +2283,57 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
                       )}
                     </div>
 
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                        Pages Label (e.g. 170+ Pages)
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white outline-none"
+                        value={newProduct.pages_count}
+                        onChange={(e) => setNewProduct({ ...newProduct, pages_count: e.target.value })}
+                        placeholder="170+ Pages"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                        Updated Info (e.g. Dec 2025)
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white outline-none"
+                        value={newProduct.updated_label}
+                        onChange={(e) => setNewProduct({ ...newProduct, updated_label: e.target.value })}
+                        placeholder="Updated up to December 2025"
+                      />
+                    </div>
+
+                    <div className="col-span-2 space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                        Exam Suitability (comma-separated)
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white outline-none"
+                        value={newProduct.exam_suitability_text}
+                        onChange={(e) => setNewProduct({ ...newProduct, exam_suitability_text: e.target.value })}
+                        placeholder="SSC CGL, Railways RRB, Banking, State PSC"
+                      />
+                    </div>
+
+                    <div className="col-span-2 space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                        Key Topics Covered (one topic per line)
+                      </label>
+                      <textarea
+                        className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white outline-none min-h-[80px]"
+                        value={newProduct.key_topics_text}
+                        onChange={(e) => setNewProduct({ ...newProduct, key_topics_text: e.target.value })}
+                        placeholder="Nobel Prizes & major awards&#10;National parks & wildlife sanctuaries&#10;Rivers, dams & waterfalls"
+                      />
+                    </div>
+
                     <div className="col-span-2 space-y-1">
                       <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
                         Description *
@@ -1988,16 +2346,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
                       />
                     </div>
 
-                    <div className="col-span-2 flex items-center gap-3">
-                      <input
-                        id="bestsellerCheck"
-                        type="checkbox"
-                        checked={newProduct.is_bestseller}
-                        onChange={(e) => setNewProduct({ ...newProduct, is_bestseller: e.target.checked })}
-                        className="w-4 h-4 text-primary rounded cursor-pointer"
-                      />
-                      <label htmlFor="bestsellerCheck" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
-                        Mark as Topper Bestseller on Storefront
+                    <div className="col-span-2 flex flex-wrap items-center gap-6">
+                      <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-slate-700 dark:text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={newProduct.is_enabled}
+                          onChange={(e) => setNewProduct({ ...newProduct, is_enabled: e.target.checked })}
+                          className="w-4 h-4 text-primary rounded cursor-pointer"
+                        />
+                        Enabled on Public Storefront
+                      </label>
+
+                      <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-slate-700 dark:text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={newProduct.is_bestseller}
+                          onChange={(e) => setNewProduct({ ...newProduct, is_bestseller: e.target.checked })}
+                          className="w-4 h-4 text-primary rounded cursor-pointer"
+                        />
+                        Featured Bestseller
                       </label>
                     </div>
                   </div>
@@ -2147,22 +2514,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
       )}
 
       {/* =================================================================== */}
-      {/* TAB 4: LIVE ORDERS & STUDENT ACCESS MANAGEMENT                      */}
+      {/* TAB 4: LIVE ORDERS & RAZORPAY REFUNDS                               */}
       {/* =================================================================== */}
       {activeTab === 'orders' && (
-        <div className="space-y-8">
-          {/* Orders Ledger */}
+        <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm space-y-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <ShoppingBag size={18} className="text-primary" /> Live Orders Ledger ({filteredOrders.length})
+                  <ShoppingBag size={18} className="text-primary" /> Orders &amp; Payment Verification ({filteredOrders.length})
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Real-time Razorpay &amp; PayPal payment transactions
+                  Track paid, pending, failed, and refunded transactions with live Razorpay refund execution.
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
                   <input
                     type="text"
@@ -2182,33 +2548,83 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
               </div>
             </div>
 
+            <div className="flex flex-wrap gap-2">
+              {(['all', 'paid', 'pending', 'failed', 'refunded'] as const).map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setOrderStatusFilter(st)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors ${
+                    orderStatusFilter === st
+                      ? 'bg-slate-900 dark:bg-primary text-white'
+                      : 'bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
+
             {filteredOrders.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase text-slate-500">
-                      <th className="py-3 px-4">Payment ID</th>
+                      <th className="py-3 px-4">Payment / Order ID</th>
                       <th className="py-3 px-4">Student Email</th>
                       <th className="py-3 px-4">Product</th>
                       <th className="py-3 px-4">Method</th>
                       <th className="py-3 px-4">Amount</th>
-                      <th className="py-3 px-4">Date</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {filteredOrders.map((o, idx) => (
                       <tr key={o.id || idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-950/50">
-                        <td className="py-3 px-4 font-mono font-bold text-slate-800 dark:text-slate-200">
-                          {o.payment_id}
+                        <td className="py-3 px-4 font-mono">
+                          <p className="font-bold text-slate-800 dark:text-slate-200">{o.payment_id}</p>
+                          {o.razorpay_order_id && (
+                            <p className="text-[10px] text-slate-400">{o.razorpay_order_id}</p>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{o.user_email}</td>
                         <td className="py-3 px-4 text-slate-800 dark:text-slate-200 font-semibold max-w-[200px] truncate">
                           {o.product_title || o.product_id}
+                          {o.coupon_code && (
+                            <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-600 dark:text-teal-400 font-mono">
+                              {o.coupon_code}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-slate-500 dark:text-slate-400">{o.payment_method || o.provider}</td>
-                        <td className="py-3 px-4 font-bold text-emerald-600 dark:text-emerald-400">₹{o.amount}</td>
-                        <td className="py-3 px-4 text-slate-400">
-                          {o.created_at ? new Date(o.created_at).toLocaleDateString() : '-'}
+                        <td className="py-3 px-4 font-bold text-slate-900 dark:text-white tabular-nums">₹{o.amount}</td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              o.status === 'paid'
+                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                : o.status === 'refunded'
+                                  ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
+                                  : o.status === 'failed'
+                                    ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                                    : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                            }`}
+                          >
+                            {o.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          {o.status === 'paid' ? (
+                            <button
+                              onClick={() => handleRefundOrder(o)}
+                              disabled={refundingOrderId === o.id}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 font-bold text-[11px] hover:bg-rose-100 cursor-pointer"
+                            >
+                              <RotateCcw size={12} /> {refundingOrderId === o.id ? 'Refunding...' : 'Refund'}
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-slate-400">{o.refund_id || '—'}</span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -2219,153 +2635,469 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
               <p className="text-center py-8 text-xs text-slate-400">No matching orders found.</p>
             )}
           </div>
+        </div>
+      )}
 
-          {/* Registered Students & Access Control */}
+      {/* =================================================================== */}
+      {/* TAB 5: CUSTOMERS DIRECTORY & ACCESS CONTROL                         */}
+      {/* =================================================================== */}
+      {activeTab === 'customers' && (
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Users size={18} className="text-blue-600" /> Customers &amp; Library Entitlements ({filteredStudents.length})
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Inspect registered aspirants, suspend/activate accounts, or manually grant/revoke study packs.
+              </p>
+            </div>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search students..."
+                value={studentSearchQuery}
+                onChange={(e) => setStudentSearchQuery(e.target.value)}
+                className="text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 py-2 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              <Search size={14} className="text-slate-400 absolute left-3 top-2.5" />
+            </div>
+          </div>
+
+          {loadingStudents ? (
+            <p className="text-center py-8 text-xs text-slate-400">Loading student directory...</p>
+          ) : filteredStudents.length > 0 ? (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {filteredStudents.map((st) => {
+                const unlockedIds: string[] = Array.isArray(st.purchasedNotes) ? st.purchasedNotes : [];
+                return (
+                  <div key={st.id} className="py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-sm text-slate-900 dark:text-white">{st.displayName}</span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 uppercase">
+                          {st.role}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                            st.status === 'suspended'
+                              ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+                              : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                          }`}
+                        >
+                          {st.status || 'active'}
+                        </span>
+                        <button
+                          onClick={() => handleToggleStudentStatus(st)}
+                          className="text-[10px] font-bold text-slate-500 hover:text-primary underline cursor-pointer"
+                        >
+                          {st.status === 'suspended' ? 'Activate' : 'Suspend'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {st.email} · {unlockedIds.length} unlocked note(s)
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(products.length > 0 ? products : BUILTIN_CATALOG_NOTES).slice(0, 5).map((p) => {
+                        const has = unlockedIds.includes(p.id);
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => handleToggleStudentProductAccess(st, p.id, has)}
+                            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
+                              has
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-primary/40'
+                            }`}
+                            title={has ? 'Click to revoke access' : 'Click to grant access'}
+                          >
+                            {has ? '✓ ' : '+ '}
+                            {String(p.title).slice(0, 22)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-center py-8 text-xs text-slate-400">
+              {auth.currentUser
+                ? 'No students matched your search.'
+                : 'Connect Google Admin Auth to inspect the live student directory.'}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 6: COUPONS & PROMO CAMPAIGNS                                    */}
+      {/* =================================================================== */}
+      {activeTab === 'coupons' && (
+        <div className="grid lg:grid-cols-2 gap-8">
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm space-y-5">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Users size={18} className="text-blue-600" /> Students Directory &amp; Manual Access ({filteredStudents.length})
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Grant or revoke direct PDF study access for registered students
-                </p>
-              </div>
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search students..."
-                  value={studentSearchQuery}
-                  onChange={(e) => setStudentSearchQuery(e.target.value)}
-                  className="text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 py-2 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
-                />
-                <Search size={14} className="text-slate-400 absolute left-3 top-2.5" />
-              </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Tag size={18} className="text-primary" /> Create Discount Coupon
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Server-validated promo codes persisted to Firestore collection <code className="font-mono">coupons</code>.
+              </p>
             </div>
 
-            {loadingStudents ? (
-              <p className="text-center py-8 text-xs text-slate-400">Loading student directory...</p>
-            ) : filteredStudents.length > 0 ? (
-              <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredStudents.map((st) => {
-                  const unlockedIds: string[] = Array.isArray(st.purchasedNotes) ? st.purchasedNotes : [];
-                  return (
-                    <div key={st.id} className="py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <form onSubmit={handleCreateCoupon} className="grid grid-cols-2 gap-3.5">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Coupon Code *</label>
+                <input
+                  required
+                  type="text"
+                  value={newCoupon.code}
+                  onChange={(e) => setNewCoupon({ ...newCoupon, code: e.target.value.toUpperCase() })}
+                  placeholder="STATIC20"
+                  className="premium-input text-xs font-mono uppercase"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Discount Type</label>
+                <select
+                  value={newCoupon.discountType}
+                  onChange={(e) => setNewCoupon({ ...newCoupon, discountType: e.target.value as 'percent' | 'fixed' })}
+                  className="premium-input text-xs"
+                >
+                  <option value="percent">Percentage (%)</option>
+                  <option value="fixed">Flat INR Off (₹)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Value *</label>
+                <input
+                  required
+                  min={1}
+                  type="number"
+                  value={newCoupon.discountValue}
+                  onChange={(e) => setNewCoupon({ ...newCoupon, discountValue: Number(e.target.value) })}
+                  className="premium-input text-xs font-mono"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Min Order (₹)</label>
+                <input
+                  min={0}
+                  type="number"
+                  value={newCoupon.minOrderAmount}
+                  onChange={(e) => setNewCoupon({ ...newCoupon, minOrderAmount: Number(e.target.value) })}
+                  className="premium-input text-xs font-mono"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Usage Limit (0 = ∞)</label>
+                <input
+                  min={0}
+                  type="number"
+                  value={newCoupon.usageLimit}
+                  onChange={(e) => setNewCoupon({ ...newCoupon, usageLimit: Number(e.target.value) })}
+                  className="premium-input text-xs font-mono"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Expiry Date</label>
+                <input
+                  type="datetime-local"
+                  value={newCoupon.expiresAt}
+                  onChange={(e) => setNewCoupon({ ...newCoupon, expiresAt: e.target.value })}
+                  className="premium-input text-xs"
+                />
+              </div>
+
+              <div className="col-span-2 space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Scope</label>
+                <select
+                  value={newCoupon.applicableProductId}
+                  onChange={(e) => setNewCoupon({ ...newCoupon, applicableProductId: e.target.value })}
+                  className="premium-input text-xs"
+                >
+                  <option value="ALL">All Storefront Products</option>
+                  {(products.length > 0 ? products : BUILTIN_CATALOG_NOTES).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingCoupon}
+                className="col-span-2 premium-button-primary py-3 text-xs"
+              >
+                <Plus size={14} /> {savingCoupon ? 'Creating Coupon...' : 'Save Active Coupon'}
+              </button>
+            </form>
+
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                Active &amp; Saved Coupons ({couponsList.length})
+              </h4>
+              {loadingCoupons ? (
+                <p className="text-xs text-slate-400">Loading coupons...</p>
+              ) : couponsList.length > 0 ? (
+                <div className="space-y-2.5 max-h-[280px] overflow-y-auto">
+                  {couponsList.map((cp) => (
+                    <div
+                      key={cp.id}
+                      className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-3"
+                    >
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-slate-900 dark:text-white">{st.displayName}</span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 uppercase">
-                            {st.role}
+                          <span className="font-mono font-bold text-xs text-primary">{cp.code}</span>
+                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                            {cp.discountType === 'percent' ? `${cp.discountValue}% OFF` : `₹${cp.discountValue} OFF`}
                           </span>
-                          {st.membershipType && st.membershipType !== 'none' && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 uppercase">
-                              {st.membershipType}
-                            </span>
-                          )}
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                              cp.isActive
+                                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                            }`}
+                          >
+                            {cp.isActive ? 'Active' : 'Paused'}
+                          </span>
                         </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">{st.email}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Used: {cp.usedCount || 0}
+                          {cp.usageLimit ? `/${cp.usageLimit}` : ''} ·{' '}
+                          {cp.expiresAt ? `Expires ${new Date(cp.expiresAt).toLocaleDateString('en-IN')}` : 'No expiry'}
+                        </p>
                       </div>
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        {(products.length > 0 ? products : BUILTIN_CATALOG_NOTES).slice(0, 4).map((p) => {
-                          const has = unlockedIds.includes(p.id);
-                          return (
-                            <button
-                              key={p.id}
-                              onClick={() => handleToggleStudentProductAccess(st, p.id, has)}
-                              className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
-                                has
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
-                                  : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-primary/40'
-                              }`}
-                              title={has ? 'Click to revoke access' : 'Click to grant access'}
-                            >
-                              {has ? '✓ ' : '+ '}
-                              {String(p.title).slice(0, 20)}...
-                            </button>
-                          );
-                        })}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleToggleCoupon(cp)}
+                          className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-bold cursor-pointer"
+                        >
+                          {cp.isActive ? 'Pause' : 'Enable'}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCoupon(cp.id)}
+                          className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg cursor-pointer"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400">No coupons created yet.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <CalendarClock size={18} className="text-amber-500" /> Promotional Countdown Bar
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Real backend-controlled offer countdown banner. Stops cleanly at 00:00:00 (no fake resets).
+                </p>
               </div>
-            ) : (
-              <p className="text-center py-8 text-xs text-slate-400">
-                {auth.currentUser
-                  ? 'No students matched your search.'
-                  : 'Connect Google Admin Auth to inspect the live student directory.'}
-              </p>
-            )}
+              <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.announcement_enabled)}
+                  onChange={(e) => setSettings({ ...settings, announcement_enabled: e.target.checked })}
+                  className="w-4 h-4 text-primary rounded cursor-pointer"
+                />
+                Show Banner
+              </label>
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">
+                  Campaign Headline
+                </label>
+                <input
+                  type="text"
+                  value={settings.campaign_title || settings.announcement_text || ''}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      campaign_title: e.target.value,
+                      announcement_text: e.target.value
+                    })
+                  }
+                  placeholder="Static GK 2026 Launch Offer – ₹99 PDF"
+                  className="premium-input text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">
+                  Exact Expiry Timestamp (ISO / Local)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={settings.campaign_expires_at ? settings.campaign_expires_at.slice(0, 16) : ''}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      campaign_expires_at: e.target.value ? new Date(e.target.value).toISOString() : ''
+                    })
+                  }
+                  className="premium-input text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">
+                  Target Product Link
+                </label>
+                <select
+                  value={settings.campaign_product_id || ''}
+                  onChange={(e) => setSettings({ ...settings, campaign_product_id: e.target.value })}
+                  className="premium-input text-xs"
+                >
+                  <option value="">All Products (/shop)</option>
+                  {(products.length > 0 ? products : BUILTIN_CATALOG_NOTES).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                onClick={handleSaveSettings}
+                disabled={savingSettings}
+                className="w-full premium-button-primary py-3 text-xs"
+              >
+                <Save size={14} /> {savingSettings ? 'Saving Campaign...' : 'Save Campaign Settings'}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* =================================================================== */}
-      {/* TAB 5: SUPPORT INQUIRIES INBOX (LIVE `contacts` COLLECTION)         */}
+      {/* TAB 7: SUPPORT INBOX & TICKET REPLIES                               */}
       {/* =================================================================== */}
       {activeTab === 'inquiries' && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-wrap justify-between items-center gap-4">
             <div>
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <MessageSquare size={18} className="text-primary" /> Student Support Inquiries ({inquiries.length})
+                <MessageSquare size={18} className="text-primary" /> Support Tickets &amp; Inquiries ({filteredInquiries.length})
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Messages submitted via the Contact Us page stored in Firestore
+                Reply directly to student tickets and update ticket resolution status.
               </p>
             </div>
-            <button
-              onClick={() => handleExportCSV(inquiries, 'support_inquiries')}
-              className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <FileSpreadsheet size={13} /> Export CSV
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {(['all', 'open', 'in_progress', 'resolved'] as const).map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setInquiryStatusFilter(st)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase cursor-pointer ${
+                    inquiryStatusFilter === st
+                      ? 'bg-slate-900 dark:bg-primary text-white'
+                      : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500'
+                  }`}
+                >
+                  {st.replace('_', ' ')}
+                </button>
+              ))}
+              <button
+                onClick={() => handleExportCSV(filteredInquiries, 'support_inquiries')}
+                className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileSpreadsheet size={13} /> CSV
+              </button>
+            </div>
           </div>
 
           {loadingInquiries ? (
             <div className="text-center py-12 text-slate-400 text-xs">Loading support inbox...</div>
-          ) : inquiries.length > 0 ? (
+          ) : filteredInquiries.length > 0 ? (
             <div className="grid gap-4">
-              {inquiries.map((inq) => (
+              {filteredInquiries.map((inq) => (
                 <div
                   key={inq.id}
-                  className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4"
+                  className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4"
                 >
-                  <div className="space-y-1.5 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-bold text-sm text-slate-900 dark:text-white">{inq.subject}</span>
-                      <span
-                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${
-                          inq.status === 'resolved'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
-                            : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
-                        }`}
-                      >
-                        {inq.status === 'resolved' ? 'Resolved' : 'New Inquiry'}
-                      </span>
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                    <div className="space-y-1.5 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-sm text-slate-900 dark:text-white">{inq.subject}</span>
+                        {inq.category && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 uppercase">
+                            {inq.category}
+                          </span>
+                        )}
+                        {inq.orderId && (
+                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                            Order: {inq.orderId}
+                          </span>
+                        )}
+                        <span
+                          className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${
+                            inq.status === 'resolved'
+                              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                              : inq.status === 'in_progress'
+                                ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
+                                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+                          }`}
+                        >
+                          {(inq.status || 'open').replace('_', ' ')}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{inq.message}</p>
+                      <p className="text-[11px] text-slate-400">
+                        From <strong className="text-slate-600 dark:text-slate-300">{inq.name}</strong> ({inq.email}) ·{' '}
+                        {inq.created_at ? new Date(inq.created_at).toLocaleString() : ''}
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{inq.message}</p>
-                    <p className="text-[11px] text-slate-400">
-                      From <strong className="text-slate-600 dark:text-slate-300">{inq.name}</strong> ({inq.email}) ·{' '}
-                      {inq.created_at ? new Date(inq.created_at).toLocaleString() : ''}
-                    </p>
-                  </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => handleResolveInquiry(inq)}
-                      className="px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-primary hover:text-white transition-colors cursor-pointer"
-                    >
-                      {inq.status === 'resolved' ? 'Reopen' : 'Mark Resolved'}
-                    </button>
                     <button
                       onClick={() => handleDeleteInquiry(inq.id)}
-                      className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer"
-                      title="Delete message"
+                      className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer self-start"
+                      title="Delete ticket"
                     >
                       <Trash2 size={15} />
                     </button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <input
+                      type="text"
+                      value={replyDrafts[inq.id] ?? inq.adminReply ?? ''}
+                      onChange={(e) => setReplyDrafts({ ...replyDrafts, [inq.id]: e.target.value })}
+                      placeholder="Write an official admin reply visible in the student's dashboard..."
+                      className="flex-1 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 outline-none"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleUpdateInquiry(inq, 'in_progress')}
+                        className="px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-xs font-bold cursor-pointer"
+                      >
+                        In Progress
+                      </button>
+                      <button
+                        onClick={() => handleUpdateInquiry(inq, 'resolved')}
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 cursor-pointer"
+                      >
+                        Save &amp; Resolve
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -2373,7 +3105,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
           ) : (
             <div className="text-center py-14 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800">
               <MessageSquare className="mx-auto text-slate-300 dark:text-slate-700 mb-3" size={34} />
-              <p className="text-xs text-slate-500 dark:text-slate-400">No support inquiries received yet.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">No support inquiries match the selected status.</p>
             </div>
           )}
         </div>
@@ -2867,16 +3599,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
                     />
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Office Address
-                  </label>
-                  <input
-                    type="text"
-                    value={settings.office_address || ''}
-                    onChange={(e) => setSettings({ ...settings, office_address: e.target.value })}
-                    className="premium-input text-xs py-3"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      Office Address
+                    </label>
+                    <input
+                      type="text"
+                      value={settings.office_address || ''}
+                      onChange={(e) => setSettings({ ...settings, office_address: e.target.value })}
+                      className="premium-input text-xs py-3"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      WhatsApp Support Number (Digits w/ 91)
+                    </label>
+                    <input
+                      type="text"
+                      value={settings.whatsapp_number || ''}
+                      onChange={(e) => setSettings({ ...settings, whatsapp_number: e.target.value })}
+                      placeholder="919876543210"
+                      className="premium-input text-xs py-3 font-mono"
+                    />
+                  </div>
                 </div>
               </div>
             </div>

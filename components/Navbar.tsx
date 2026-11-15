@@ -88,8 +88,10 @@ const Navbar: React.FC<NavbarProps> = ({ user }) => {
 
   const navLinks = [
     { name: 'Home', path: '/', icon: Home },
-    { name: 'Notes Library', path: '/shop', icon: BookOpen },
+    { name: 'All Products', path: '/shop', icon: BookOpen },
     { name: 'Membership', path: '/membership', icon: CreditCard },
+    { name: 'About', path: '/about', icon: ShieldCheck },
+    { name: 'Contact', path: '/contact', icon: UserIcon },
   ];
 
   return (
@@ -117,7 +119,7 @@ const Navbar: React.FC<NavbarProps> = ({ user }) => {
             </Link>
 
             {/* Desktop Center Nav */}
-            <div className="hidden md:flex items-center gap-8">
+            <div className="hidden md:flex items-center gap-6 lg:gap-7">
               {navLinks.map((link) => (
                 <NavLink 
                   key={link.path}
