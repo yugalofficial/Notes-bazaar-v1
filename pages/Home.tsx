@@ -164,13 +164,13 @@ const Home: React.FC = () => {
               transition={{ duration: 0.5, ease: 'easeOut' }}
               className="space-y-6"
             >
-              <div className="inline-flex items-center gap-3.5 px-4 py-2.5 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-800">
+              <div className="inline-flex items-center gap-3 px-3.5 sm:px-4 py-2.5 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-800 max-w-full">
                 <NotesBazaarLogo variant="seal" size={44} className="shrink-0" />
-                <div className="pr-2">
-                  <p className="text-[11px] font-extrabold uppercase tracking-wider text-blue-700 dark:text-blue-400">
+                <div className="pr-1 sm:pr-2 min-w-0">
+                  <p className="text-[11px] font-extrabold uppercase tracking-wider text-blue-700 dark:text-blue-400 truncate">
                     NotesBazaar • Your Study Partner
                   </p>
-                  <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                  <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 truncate">
                     CRACK YOUR EXAMS WITH US!
                   </p>
                 </div>
@@ -187,34 +187,34 @@ const Home: React.FC = () => {
                   'Concise, syllabus-aligned PDF study resources for SSC, Banking, Railways, State PSC & UPSC. Inspect sample pages with full-screen zoom before you unlock.'}
               </p>
 
-              <div className="flex flex-col sm:flex-row gap-4 pt-1">
-                <Link to="/product/prod_static_gk_2026" className="premium-button-primary group">
+              <div className="flex flex-col sm:flex-row gap-3.5 sm:gap-4 pt-1">
+                <Link to="/product/prod_static_gk_2026" className="premium-button-primary group min-h-[48px]">
                   <span>Static GK 2026 — ₹{staticGkProduct.price}</span>
                   <ArrowRight className="group-hover:translate-x-1 transition-transform" size={18} />
                 </Link>
-                <Link to="/shop" className="premium-button-secondary">
+                <Link to="/shop" className="premium-button-secondary min-h-[48px]">
                   <BookOpen size={18} className="text-blue-700 dark:text-blue-400" />
                   <span>Browse All Notes</span>
                 </Link>
               </div>
 
               {/* Trust Strip */}
-              <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-200/70 dark:border-slate-800 max-w-lg">
+              <div className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-3 pt-4 border-t border-slate-200/70 dark:border-slate-800 max-w-lg">
                 <div className="space-y-0.5">
                   <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <ShieldCheck size={14} className="text-emerald-600" /> Verified Pay
+                    <ShieldCheck size={14} className="text-emerald-600 shrink-0" /> Verified Pay
                   </p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">Razorpay SSL Gateway</p>
                 </div>
                 <div className="space-y-0.5">
                   <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <ZoomIn size={14} className="text-blue-600" /> 300% Preview
+                    <ZoomIn size={14} className="text-blue-600 shrink-0" /> 300% Preview
                   </p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">Inspect Before Buying</p>
                 </div>
                 <div className="space-y-0.5">
                   <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <Download size={14} className="text-teal-600" /> Instant PDF
+                    <Download size={14} className="text-teal-600 shrink-0" /> Instant PDF
                   </p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">Library + Email Link</p>
                 </div>
@@ -222,13 +222,13 @@ const Home: React.FC = () => {
             </motion.div>
 
             {/* Right Content - Featured Flagship Product Card: Static GK 2026 */}
-            <div ref={heroVisualRef} className="relative">
+            <div ref={heroVisualRef} className="relative min-w-0">
               <motion.div
                 initial={{ scale: 0.96, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ duration: 0.6, ease: 'easeOut' }}
                 style={{ y: sheetY, rotate: sheetRotate }}
-                className="relative z-10 rounded-[36px] bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 p-4 sm:p-6 shadow-2xl shadow-blue-950/25 border border-slate-800"
+                className="relative z-10 rounded-3xl sm:rounded-[36px] bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 p-4 sm:p-6 shadow-2xl shadow-blue-950/25 border border-slate-800"
               >
                 <div className="flex items-center justify-between text-white pb-4 px-1">
                   <div className="flex items-center gap-3">
@@ -599,7 +599,7 @@ const Home: React.FC = () => {
 
       {/* CTA Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
-        <div className="bg-gradient-to-r from-blue-700 via-teal-700 to-emerald-600 rounded-[36px] p-10 md:p-14 text-center text-white relative overflow-hidden shadow-xl">
+        <div className="bg-gradient-to-r from-blue-700 via-teal-700 to-emerald-600 rounded-3xl sm:rounded-[36px] p-7 sm:p-10 md:p-14 text-center text-white relative overflow-hidden shadow-xl">
           <div className="relative z-10 space-y-5 max-w-2xl mx-auto">
             <div className="flex justify-center">
               <NotesBazaarLogo variant="seal" size={64} className="shadow-lg rounded-full" />

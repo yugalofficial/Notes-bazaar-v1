@@ -42,10 +42,10 @@ const PurchaseToast: React.FC = () => {
     <AnimatePresence>
       {visible && currentOrder && (
         <motion.div
-          initial={{ opacity: 0, x: -24 }}
+          initial={{ opacity: 0, x: 24 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -24 }}
-          className="fixed bottom-24 md:bottom-6 left-4 md:left-6 z-40 bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-3.5 max-w-sm"
+          exit={{ opacity: 0, x: 24 }}
+          className="fixed top-20 right-4 sm:right-6 z-40 bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-3.5 max-w-[calc(100vw-2rem)] sm:max-w-sm"
         >
           <div className="w-11 h-11 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center rounded-xl shrink-0">
             <CheckCircle2 size={22} />

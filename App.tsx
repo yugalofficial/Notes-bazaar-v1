@@ -7,6 +7,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import PurchaseToast from './components/PurchaseToast';
 import { CampaignCountdownBanner, WhatsAppSupportButton } from './components/CampaignSupport';
+import { PWAInstallBanner, OfflineIndicator } from './components/PWAInstallPrompt';
 import { NotesBazaarLogo } from './components/NotesBazaarLogo';
 import Home from './pages/Home';
 import Login from './pages/Login';
@@ -97,6 +98,8 @@ const ScrollProgressAndTopBtn: React.FC = () => {
   const { scrollYProgress } = useScroll();
   const scaleX = useSpring(scrollYProgress, { stiffness: 180, damping: 28, restDelta: 0.001 });
   const [showTop, setShowTop] = useState(false);
+  const { pathname } = useLocation();
+  const isProductRoute = pathname.startsWith('/product/');
 
   useEffect(() => {
     const onScroll = () => setShowTop(window.scrollY > 420);
@@ -118,7 +121,7 @@ const ScrollProgressAndTopBtn: React.FC = () => {
             exit={{ opacity: 0, scale: 0.85, y: 12 }}
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             aria-label="Back to top"
-            className="fixed bottom-24 md:bottom-7 right-4 sm:right-6 z-40 w-11 h-11 rounded-2xl bg-slate-900 dark:bg-slate-800 text-white border border-slate-700/70 shadow-xl hover:bg-primary hover:border-primary flex items-center justify-center transition-colors cursor-pointer"
+            className={`fixed ${isProductRoute ? 'bottom-[142px]' : 'bottom-[78px]'} md:bottom-6 right-4 sm:right-6 z-30 w-11 h-11 rounded-2xl bg-slate-900 dark:bg-slate-800 text-white border border-slate-700/70 shadow-xl hover:bg-primary hover:border-primary flex items-center justify-center transition-colors cursor-pointer`}
           >
             <ArrowUp size={18} />
           </motion.button>
@@ -296,10 +299,11 @@ const App: React.FC = () => {
       <HashRouter>
         <ScrollToTopAndSeo />
         <ScrollProgressAndTopBtn />
-        <div className="flex flex-col min-h-screen">
+        <div className="flex flex-col min-h-screen w-full overflow-x-clip">
+          <OfflineIndicator />
           <CampaignCountdownBanner />
           <Navbar user={user} />
-          <main className="flex-grow pb-20 md:pb-0">
+          <main className="flex-grow pb-24 md:pb-0">
             <Suspense fallback={<RouteFallbackSpinner />}>
               <Routes>
                 <Route path="/" element={<Home />} />
@@ -346,6 +350,7 @@ const App: React.FC = () => {
           </main>
           <PurchaseToast />
           <WhatsAppSupportButton />
+          <PWAInstallBanner />
           <Footer />
         </div>
       </HashRouter>

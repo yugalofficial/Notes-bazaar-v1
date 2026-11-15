@@ -1521,7 +1521,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
               </div>
 
               {/* Supported Razorpay Payment Methods Overview */}
-              <div className="grid grid-cols-5 gap-1.5 pt-2 text-center">
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 pt-2 text-center">
                 {[
                   { label: 'UPI', icon: Smartphone },
                   { label: 'Cards', icon: CreditCard },
@@ -1745,7 +1745,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
               )}
             </div>
 
-            <div className="px-4 sm:px-6 py-3 bg-slate-900/95 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4 text-white shrink-0">
+            <div className="px-4 sm:px-6 py-3 pb-safe bg-slate-900/95 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 sm:gap-4 text-white shrink-0">
               <div className="flex items-center gap-2 overflow-x-auto">
                 {previewImagesList.map((_, idx) => (
                   <button
@@ -1990,15 +1990,15 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ user }) => {
 
       {/* Mobile Sticky Buy Bar */}
       {!isPurchased && (
-        <div className="md:hidden fixed bottom-16 left-0 right-0 z-40 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 p-4 flex items-center justify-between shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+        <div className="md:hidden fixed bottom-[58px] left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-slate-100 dark:border-slate-800 px-4 py-3 flex items-center justify-between gap-3 shadow-[0_-8px_20px_rgba(0,0,0,0.06)]">
           <div className="flex flex-col tabular-nums">
-            <span className="text-lg font-bold text-slate-900 dark:text-white">₹{finalPrice}</span>
+            <span className="text-lg font-bold text-slate-900 dark:text-white leading-tight">₹{finalPrice}</span>
             {product.originalPrice && <span className="text-[10px] text-slate-400 line-through">₹{product.originalPrice}</span>}
           </div>
           <button
             onClick={() => initPayment(PaymentMode.RAZORPAY)}
             disabled={processing || product.isEnabled === false}
-            className="px-7 py-3 bg-gradient-to-r from-blue-700 to-emerald-600 text-white rounded-xl font-bold text-sm shadow-lg cursor-pointer"
+            className="min-h-[44px] px-6 py-2.5 bg-gradient-to-r from-blue-700 to-emerald-600 text-white rounded-xl font-bold text-sm shadow-lg cursor-pointer"
           >
             {processing ? '...' : 'Buy & Unlock'}
           </button>

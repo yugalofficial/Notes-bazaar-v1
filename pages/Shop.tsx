@@ -562,7 +562,7 @@ const Shop: React.FC = () => {
                 <AnimatePresence mode="popLayout">
                   <motion.div
                     layout
-                    className={viewMode === 'grid' ? 'grid sm:grid-cols-2 xl:grid-cols-3 gap-7' : 'flex flex-col gap-5'}
+                    className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-7' : 'flex flex-col gap-5'}
                   >
                     {pagedNotes.length > 0 ? (
                       pagedNotes.map((note) => (

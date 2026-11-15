@@ -22,6 +22,7 @@ import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 
 import { NotesBazaarLogo } from './NotesBazaarLogo';
+import { PWAInstallButton } from './PWAInstallPrompt';
 
 interface NavbarProps {
   user: User | null;
@@ -136,7 +137,8 @@ const Navbar: React.FC<NavbarProps> = ({ user }) => {
             </div>
 
             {/* Desktop Right Actions */}
-            <div className="hidden md:flex items-center gap-3 shrink-0">
+            <div className="hidden md:flex items-center gap-2.5 shrink-0">
+              <PWAInstallButton variant="compact" />
               <button 
                 onClick={toggleTheme}
                 className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-amber-400 hover:bg-slate-100/80 dark:hover:bg-slate-800 rounded-xl transition-all cursor-pointer"
@@ -248,7 +250,8 @@ const Navbar: React.FC<NavbarProps> = ({ user }) => {
                   )}
                 </div>
 
-                <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
+                <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                  <PWAInstallButton variant="drawer" onAfterClick={() => setIsMenuOpen(false)} />
                   {user ? (
                     <button 
                       onClick={handleLogout}

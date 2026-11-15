@@ -29,6 +29,7 @@
     scroll-behavior: smooth;
     color-scheme: light;
     overflow-x: clip;
+    max-width: 100%;
   }
 
   html.dark {
@@ -46,6 +47,8 @@
     @apply bg-[#FAFBFD] dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased selection:bg-teal-500/15 selection:text-teal-900 dark:selection:text-teal-200 transition-colors duration-300;
     font-family: var(--font-sans);
     overflow-x: clip;
+    max-width: 100%;
+    width: 100%;
     -webkit-tap-highlight-color: transparent;
     /* Subtle premium clean paper texture background */
     background-image: 
@@ -54,7 +57,12 @@
       linear-gradient(to right, rgba(226, 232, 240, 0.25) 1px, transparent 1px),
       linear-gradient(to bottom, rgba(226, 232, 240, 0.25) 1px, transparent 1px);
     background-size: 100% 100%, 100% 100%, 48px 48px, 48px 48px;
-    background-attachment: fixed;
+  }
+
+  @media (min-width: 768px) {
+    body {
+      background-attachment: fixed;
+    }
   }
 
   html.dark body {
@@ -94,11 +102,11 @@
   }
 
   .mobile-nav-item {
-    @apply flex flex-col items-center justify-center gap-1 text-slate-400 transition-all duration-300 relative py-1;
+    @apply flex flex-col items-center justify-center gap-0.5 text-slate-400 transition-all duration-300 relative py-1 min-w-[56px] min-h-[44px];
   }
 
   .mobile-nav-item.active {
-    @apply text-primary scale-110;
+    @apply text-primary scale-105;
   }
 
   .premium-gradient-text {

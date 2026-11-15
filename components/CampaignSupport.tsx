@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Clock, ArrowRight, MessageCircle, X } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -101,6 +101,7 @@ export const CampaignCountdownBanner: React.FC = () => {
 
 export const WhatsAppSupportButton: React.FC = () => {
   const [whatsappNumber, setWhatsappNumber] = useState<string>('');
+  const { pathname } = useLocation();
 
   useEffect(() => {
     const loadWhatsApp = async () => {
@@ -122,6 +123,8 @@ export const WhatsAppSupportButton: React.FC = () => {
 
   if (!whatsappNumber) return null;
 
+  const isProductRoute = pathname.startsWith('/product/');
+  const mobileBottomClass = isProductRoute ? 'bottom-[142px]' : 'bottom-[78px]';
   const waHref = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
     'Hello NotesBazaar Support, I have a question regarding study material PDFs / order verification.'
   )}`;
@@ -132,7 +135,7 @@ export const WhatsAppSupportButton: React.FC = () => {
       target="_blank"
       rel="noopener noreferrer"
       aria-label="Chat with NotesBazaar Support on WhatsApp"
-      className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-40 inline-flex items-center gap-2 px-4 py-3 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xl shadow-emerald-900/25 transition-all hover:scale-105"
+      className={`fixed ${mobileBottomClass} md:bottom-6 left-4 md:left-6 z-30 inline-flex items-center justify-center gap-2 min-w-[44px] min-h-[44px] px-3.5 sm:px-4 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xl shadow-emerald-900/25 transition-all hover:scale-105`}
     >
       <MessageCircle size={18} />
       <span className="hidden sm:inline">WhatsApp Support</span>
