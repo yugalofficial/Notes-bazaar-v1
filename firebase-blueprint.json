@@ -1,0 +1,198 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account information and role configurations stored in Firestore",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 160 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "purchasedNotes": { "type": "array" },
+        "membershipType": { "type": "string", "enum": ["none", "basic", "pro", "elite"] },
+        "membershipExpiry": { "type": "number" },
+        "referralCode": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["uid", "email", "displayName", "role", "purchasedNotes"]
+    },
+    "Product": {
+      "title": "Product (Note)",
+      "description": "A curated, premium handwritten notes set",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 100 },
+        "exam_type": { "type": "string", "maxLength": 40 },
+        "description": { "type": "string", "maxLength": 2500 },
+        "price": { "type": "number" },
+        "original_price": { "type": "number" },
+        "preview_images": { "type": "array" },
+        "file_url": { "type": "string", "maxLength": 2048 },
+        "file_name": { "type": "string", "maxLength": 200 },
+        "file_size_label": { "type": "string", "maxLength": 40 },
+        "rating": { "type": "number" },
+        "reviews_count": { "type": "number" },
+        "is_bestseller": { "type": "boolean" },
+        "students_bought": { "type": "string", "maxLength": 32 },
+        "created_at": { "type": "string", "maxLength": 64 },
+        "updated_at": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["title", "category", "exam_type", "price", "file_url"]
+    },
+    "Order": {
+      "title": "Order Transaction",
+      "description": "Records representing a successful or pending purchase of study material",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "user_email": { "type": "string", "maxLength": 160 },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["paid", "pending", "failed"] },
+        "product_id": { "type": "string", "maxLength": 128 },
+        "product_title": { "type": "string", "maxLength": 200 },
+        "payment_id": { "type": "string", "maxLength": 128 },
+        "provider": { "type": "string", "maxLength": 40 },
+        "payment_method": { "type": "string", "maxLength": 80 },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["user_email", "amount", "status", "product_id", "payment_id", "created_at"]
+    },
+    "Review": {
+      "title": "Product Review",
+      "description": "User ratings and written reviews for study guides",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 100 },
+        "userEmail": { "type": "string", "maxLength": 160 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "rating": { "type": "number" },
+        "comment": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["uid", "userName", "productId", "rating", "comment", "createdAt"]
+    },
+    "Contact": {
+      "title": "Contact Submission",
+      "description": "Inquiries sent by prospective and existing users",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 160 },
+        "subject": { "type": "string", "maxLength": 200 },
+        "message": { "type": "string", "maxLength": 2500 },
+        "status": { "type": "string", "enum": ["open", "resolved"] },
+        "created_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["name", "email", "subject", "message", "created_at"]
+    },
+    "ActivityLog": {
+      "title": "User Activity Log",
+      "description": "Immutable audit trails for security, vault access, and transaction operations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 160 },
+        "action": { "type": "string", "maxLength": 80 },
+        "details": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["action", "details", "createdAt"]
+    },
+    "SiteSettings": {
+      "title": "Global Site Configurations",
+      "description": "Storefront configuration and isolated admin security settings",
+      "type": "object",
+      "properties": {
+        "razorpay_key": { "type": "string", "maxLength": 120 },
+        "razorpay_mode": { "type": "string", "enum": ["demo", "live"] },
+        "paypal_client_id": { "type": "string", "maxLength": 200 },
+        "enable_razorpay": { "type": "boolean" },
+        "enable_paypal": { "type": "boolean" },
+        "appscript_webhook_url": { "type": "string", "maxLength": 512 },
+        "emailjs_service_id": { "type": "string", "maxLength": 120 },
+        "emailjs_template_id": { "type": "string", "maxLength": 120 },
+        "emailjs_public_key": { "type": "string", "maxLength": 120 },
+        "hero_title": { "type": "string", "maxLength": 200 },
+        "hero_subtitle": { "type": "string", "maxLength": 500 },
+        "contact_email": { "type": "string", "maxLength": 160 },
+        "contact_phone": { "type": "string", "maxLength": 40 },
+        "office_address": { "type": "string", "maxLength": 240 }
+      }
+    },
+    "ManagedFile": {
+      "title": "Admin Managed File Asset",
+      "description": "PDF study packs and preview images uploaded or attached via Admin File Vault",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "kind": { "type": "string", "enum": ["pdf", "preview_image"] },
+        "url": { "type": "string", "maxLength": 400000 },
+        "mimeType": { "type": "string", "maxLength": 100 },
+        "sizeBytes": { "type": "number" },
+        "linkedProductId": { "type": "string", "maxLength": 128 },
+        "uploadedBy": { "type": "string", "maxLength": 160 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["name", "kind", "url", "createdAt"]
+    },
+    "AdminRole": {
+      "title": "Authorized Admin Record",
+      "description": "Server-verified admin UID lookup document",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 160 },
+        "grantedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["uid", "email", "grantedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles indexed by Firebase Auth UID"
+    },
+    "products/{productId}": {
+      "schema": "Product",
+      "description": "Curated handwritten notes catalog"
+    },
+    "orders/{orderId}": {
+      "schema": "Order",
+      "description": "Order records for purchased books and notes"
+    },
+    "reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "User product ratings and comments"
+    },
+    "contacts/{contactId}": {
+      "schema": "Contact",
+      "description": "Contact message submissions"
+    },
+    "activity_logs/{logId}": {
+      "schema": "ActivityLog",
+      "description": "Immutable compliance and security audit logs"
+    },
+    "settings/{settingId}": {
+      "schema": "SiteSettings",
+      "description": "Public storefront config (main) and Admin-only security vault hash (admin_security)"
+    },
+    "managed_files/{fileId}": {
+      "schema": "ManagedFile",
+      "description": "Admin-managed PDF documents and preview image assets"
+    },
+    "admins/{adminId}": {
+      "schema": "AdminRole",
+      "description": "Verified administrator UID registry"
+    }
+  }
+}

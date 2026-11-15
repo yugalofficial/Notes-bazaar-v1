@@ -1,0 +1,146 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Safe Window.fetch shim: prevents 'Cannot set property fetch of #<Window> which has only a getter' without breaking native fetch execution -->
+    <script>
+        (function() {
+            try {
+                // Immediate unregister of any legacy service workers or stale caches from previous sessions
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                        for (var i = 0; i < registrations.length; i++) {
+                            registrations[i].unregister();
+                        }
+                    }).catch(function() {});
+                }
+                if ('caches' in window) {
+                    caches.keys().then(function(keys) {
+                        for (var j = 0; j < keys.length; j++) {
+                            caches.delete(keys[j]);
+                        }
+                    }).catch(function() {});
+                }
+
+                // Bind original fetch to window to avoid 'Illegal invocation'
+                var originalFetch = typeof window !== 'undefined' && window.fetch ? window.fetch.bind(window) : null;
+                if (originalFetch) {
+                    var currentFetch = originalFetch;
+                    var fetchDescriptor = {
+                        get: function() {
+                            return currentFetch;
+                        },
+                        set: function(newFetch) {
+                            if (typeof newFetch === 'function') {
+                                currentFetch = newFetch.bind ? newFetch.bind(window) : newFetch;
+                            } else {
+                                currentFetch = newFetch;
+                            }
+                        },
+                        configurable: true,
+                        enumerable: true
+                    };
+                    
+                    try {
+                        Object.defineProperty(window, 'fetch', fetchDescriptor);
+                    } catch (e1) {
+                        try {
+                            var proto = Object.getPrototypeOf(window) || (typeof Window !== 'undefined' && Window.prototype);
+                            if (proto) {
+                                Object.defineProperty(proto, 'fetch', fetchDescriptor);
+                            }
+                        } catch (e2) {}
+                    }
+                }
+            } catch (err) {
+                console.warn("Fetch shim init warning:", err);
+            }
+        })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NotesBazaar – Exam Prep &amp; Study Material</title>
+    <meta name="description" content="A premium marketplace for digital handwritten notes optimized for SSC, Banking, UPSC, and Railways competitive exams. Features secure payments, instant downloads, and a robust admin dashboard.">
+    <meta property="og:title" content="NotesBazaar – Exam Prep &amp; Study Material">
+    <meta property="og:description" content="A premium marketplace for digital handwritten notes optimized for SSC, Banking, UPSC, and Railways competitive exams.">
+    <!-- Synchronous Theme Pre-Hydration: prevents light-mode flash when Dark Mode is active -->
+    <script>
+        try {
+            var savedTheme = localStorage.getItem('theme');
+            var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        } catch (e) {}
+    </script>
+    <!-- Google Fonts: Premium Typography Suite -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    
+    <!-- Mobile App & Brand Favicon Meta -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#0D9488">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#020617">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230F172A' stroke='%230D9488' stroke-width='4'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='sans-serif' font-weight='800' font-size='24' fill='%232DD4BF'%3ENB%3C/text%3E%3C/svg%3E">
+    <link rel="manifest" href="./manifest.json">
+    
+    <!-- Razorpay SDK: loaded asynchronously so it never blocks page rendering on mobile connections -->
+    <script src="https://checkout.razorpay.com/v1/checkout.js" defer async></script>
+    
+    <!-- Emergency Blank-Screen Runtime Error Overlay -->
+    <script>
+        (function() {
+            function showErrorOverlay(title, error, type) {
+                var message = error && error.message ? error.message : String(error);
+                if (message.indexOf('network') !== -1 || message.indexOf('NetworkError') !== -1 || message.indexOf('Quota') !== -1 || message.indexOf('Firestore') !== -1 || message.indexOf('permission-denied') !== -1) {
+                    console.warn("Benign background warning ignored by overlay:", message);
+                    return;
+                }
+
+                var container = document.getElementById('emergency-error-overlay');
+                if (!container) {
+                    container = document.createElement('div');
+                    container.id = 'emergency-error-overlay';
+                    container.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#1e1e2e;color:#f38ba8;padding:30px;font-family:monospace;z-index:999999;overflow:auto;line-height:1.6;box-sizing:border-box;display:flex;flex-direction:column;';
+                    document.body ? document.body.appendChild(container) : document.documentElement.appendChild(container);
+                }
+                
+                var stack = error && error.stack ? error.stack : '';
+                
+                container.innerHTML = 
+                    '<div style="max-width:800px;margin:20px auto;background:#313244;padding:30px;border-radius:12px;border-left:8px solid #f38ba8;box-shadow:0 10px 30px rgba(0,0,0,0.5);">' +
+                        '<h1 style="margin-top:0;font-size:24px;color:#f2cdcd;display:flex;align-items:center;gap:10px;">⚠️ NotesBazaar Runtime Error (' + type + ')</h1>' +
+                        '<p style="font-size:16px;color:#cdd6f4;background:#181825;padding:15px;border-radius:6px;font-weight:bold;word-break:break-all;">' + message + '</p>' +
+                        (stack ? '<h3 style="color:#a6adc8;margin-bottom:5px;font-size:14px;">Stack Trace:</h3><pre style="background:#11111b;color:#a6e3a1;padding:15px;border-radius:6px;overflow-x:auto;font-size:12px;margin:0;max-height:300px;">' + stack + '</pre>' : '') +
+                        '<div style="margin-top:20px;display:flex;gap:10px;">' +
+                            '<button onclick="window.location.reload(true)" style="background:#89b4fa;color:#11111b;border:none;padding:10px 20px;font-weight:bold;border-radius:6px;cursor:pointer;font-family:monospace;">↩️ Reload Page</button>' +
+                            '<button onclick="navigator.serviceWorker.getRegistrations().then(r => {for(let s of r) s.unregister(); window.location.reload(true);})" style="background:#fab387;color:#11111b;border:none;padding:10px 20px;font-weight:bold;border-radius:6px;cursor:pointer;font-family:monospace;">🧹 Clear Cache & ServiceWorkers</button>' +
+                        '</div>' +
+                    '</div>';
+            }
+
+            window.onerror = function(message, source, lineno, colno, error) {
+                var errObj = error || { message: message, stack: 'at ' + source + ':' + lineno + ':' + colno };
+                console.error("Caught global error:", errObj);
+                showErrorOverlay('Runtime Crash', errObj, 'Unhandled Error');
+                return false;
+            };
+
+            window.addEventListener('unhandledrejection', function(event) {
+                console.error("Caught unhandled rejection:", event.reason);
+                var reason = event.reason || 'Unknown unhandled promise rejection';
+                var errObj = reason instanceof Error ? reason : { message: String(reason), stack: '' };
+                showErrorOverlay('Promise Rejection', errObj, 'Unhandled Promise Rejection');
+            });
+        })();
+    </script>
+</head>
+<body class="bg-[#FAFBFD] dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-primary/20 selection:text-primary">
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

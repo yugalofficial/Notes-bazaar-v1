@@ -1,0 +1,6 @@
+{
+  "name": "NotesBazaar – Exam Prep & Study Material",
+  "description": "A premium marketplace for digital handwritten notes optimized for SSC, Banking, UPSC, and Railways competitive exams. Features secure payments, instant downloads, and a robust admin dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
